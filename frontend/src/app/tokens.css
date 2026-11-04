@@ -1,0 +1,30 @@
+/* Design tokens from the Paper file "moodboard_personal_website".
+   Trail-marker palette: ink text, flagging-tape pink, route-sign yellow, blaze orange.
+   Neutrals below the first block are the literal greys used in the Chat · A2 Stillwater frame. */
+:root {
+  --color-ink: #111111;
+  --color-slate: #5e6a70;
+  --color-tape-pink: #ffb3e6;
+  --color-trail-yellow: #edf24a;
+  --color-blaze: #ff5b14;
+
+  --color-white: #ffffff;
+  --color-slate-muted: #6b7378; /* meta labels, placeholder */
+  --color-slate-faint: #9aa3a7; /* de-emphasised suffixes */
+  --color-hairline: #e2e6e6; /* dividers */
+  --color-chip: #eef1f1; /* chips, icon buttons, code wells */
+  --color-snow: #fafbfb; /* sidebar ground */
+
+  --font-display: 'Inter Tight Variable', 'Inter Tight', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Chat text. Headings, tables and code inside replies scale from the body size. */
+  --text-body: 16px; /* Argo's replies and greeting */
+  --leading-body: 24px;
+  --text-user: 15px; /* the user's own messages */
+  --leading-user: 22px;
+  --text-input: 15px; /* composer */
+
+  --column-width: 640px;
+  --gutter: 32px;
+}

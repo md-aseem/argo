@@ -1,0 +1,35 @@
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-hairline);
+  color: var(--color-slate);
+  font-family: var(--font-mono);
+  text-decoration: none;
+}
+
+.name {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.faint {
+  color: var(--color-slate-faint);
+}
+
+.view {
+  flex-shrink: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  line-height: 14px;
+}
+
+.row:hover .view {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

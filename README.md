@@ -1,3 +1,97 @@
 # Argo
 
-Hello, Argo is being set up.
+Argo is Aseem's personal AI agent: a Google ADK agent (`src/agent.py`) with a chat UI.
+
+```
+src/        the agent (agent.py) and its HTTP API (main.py)
+frontend/   the chat UI: Vite + React + TypeScript
+```
+
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/) and Python 3.15 (see `.python-version`; uv fetches it if needed)
+- Node.js 20.19+ or 22.12+, and npm
+- Google Cloud access for Vertex AI. Sign in once with `gcloud auth application-default login`.
+- `src/.env` (git-ignored) with:
+  ```
+  GOOGLE_GENAI_USE_ENTERPRISE=...
+  GOOGLE_CLOUD_PROJECT=...
+  GOOGLE_CLOUD_LOCATION=...
+  ```
+
+## Set up (first time)
+
+From the repo root:
+
+```sh
+uv sync --no-install-project   # Python dependencies into .venv
+cd frontend && npm install     # frontend dependencies
+```
+
+Use `--no-install-project` here: a plain `uv sync` or `uv run` tries to build the `argo` package, and fails because `pyproject.toml` expects it at `src/argo/` while the code lives in `src/`.
+
+## Start the app (development)
+
+Two terminals, both from the repo root.
+
+**1. API** on port 8000:
+
+```sh
+.venv/bin/uvicorn src.main:app --reload --reload-dir src --port 8000
+```
+
+**2. Chat UI** on port 5173, with hot reload. It proxies `/api` to the API.
+
+```sh
+cd frontend
+npm run dev
+```
+
+Open http://localhost:5173.
+
+If the API isn't on port 8000, start the UI with `ARGO_API=http://127.0.0.1:<port> npm run dev`.
+
+## Build and start (production build)
+
+**1. Build the UI.** This type-checks, then writes the bundle to `frontend/dist`.
+
+```sh
+cd frontend
+npm run build
+```
+
+**2. Start the API** (no `--reload`), from the repo root:
+
+```sh
+.venv/bin/uvicorn src.main:app --port 8000
+```
+
+**3. Serve the build** on port 4173, proxying `/api` to the API:
+
+```sh
+cd frontend
+npm run preview
+```
+
+Open http://localhost:4173.
+
+`npm run preview` is a local static server for trying the build. The API does not serve `frontend/dist` itself, so to host Argo elsewhere, put any static host in front of `dist` and route `/api` to the API.
+
+To stop either server, press Ctrl+C in its terminal.
+
+## How it fits together
+
+- **Conversations** are stored in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The logo in the top bar starts a new chat.
+- **Replies stream** over server-sent events from `POST /api/chat`. The API turns ADK events into `text`, `tool`, `tool_result`, `artifact`, `error` and `done`; the UI renders them as they arrive.
+- **Tools**: any tool you add to the agent shows up in the reply header (`read_file · write_file ›`, click to expand) and in the status line while it runs.
+- **Files Argo saves** (ADK artifacts, via `tool_context.save_artifact`) appear as rows under the reply with a VIEW link. They are kept in `src/.adk/artifacts/`.
+- **Attachments**: PDFs, images, audio and video are sent to the model as-is; any other file must be UTF-8 text. 15 MB total per message.
+
+## API
+
+| Route | |
+| --- | --- |
+| `POST /api/chat` | `{session_id?, text, attachments[]}` → SSE stream. Omit `session_id` to start a conversation. |
+| `GET /api/sessions` | All conversations, newest first. |
+| `GET /api/sessions/{id}` | One conversation with its messages. |
+| `GET /api/sessions/{id}/artifacts/{name}` | A file the agent saved. |

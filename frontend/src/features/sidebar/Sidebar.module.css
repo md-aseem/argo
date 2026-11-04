@@ -1,0 +1,187 @@
+/* Docked: 340px list. Collapsed: 64px rail with the logo, toggle, new chat and
+   the user. The 1px hairline is an inset shadow; the matching padding keeps
+   row fills from painting over it. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 340px;
+  max-width: 85vw;
+  height: 100%;
+  padding-right: 1px;
+  background: var(--color-snow);
+  box-shadow: inset -1px 0 0 var(--color-hairline);
+}
+
+.sidebar[data-collapsed='true'] {
+  width: 64px;
+  align-items: center;
+}
+
+/* Header: logo + toggle side by side when docked, stacked on the rail. */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  width: 100%;
+  height: 48px;
+  padding: 0 20px;
+}
+
+.sidebar[data-collapsed='true'] .header {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 18px;
+  height: auto;
+  padding: 12px 0 6px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  background: var(--color-chip);
+  color: var(--color-ink);
+}
+
+.toggle:hover {
+  background: var(--color-hairline);
+}
+
+.newChat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  width: 100%;
+  height: 40px;
+  padding: 0 20px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: left;
+}
+
+.newChat:hover {
+  background: var(--color-chip);
+}
+
+.sidebar[data-collapsed='true'] .newChat {
+  justify-content: center;
+  padding: 0;
+}
+
+/* Conversation list */
+
+.list {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  margin: 0;
+  padding: 14px 20px 6px;
+  color: var(--color-slate-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: block;
+  width: 100%;
+  height: 36px;
+  padding: 0 20px;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 36px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--color-chip);
+}
+
+.row[aria-current='page'] {
+  background: var(--color-trail-yellow);
+  font-weight: 500;
+}
+
+/* User, pinned to the bottom */
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  width: 100%;
+  height: 64px;
+  padding: 0 20px;
+  box-shadow: inset 0 1px 0 var(--color-hairline);
+}
+
+.sidebar[data-collapsed='true'] .user {
+  justify-content: center;
+  padding: 0;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  background: var(--color-ink);
+  color: var(--color-white);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

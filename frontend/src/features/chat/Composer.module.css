@@ -1,0 +1,151 @@
+.dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 8px var(--gutter) 14px;
+}
+
+/* The design's 1.5px ink stroke. A real `border` would be floored to 1px by
+   Chrome, so it is drawn as an inset shadow with matching padding. */
+.box {
+  display: flex;
+  flex-direction: column;
+  width: min(var(--column-width), 100%);
+  padding: 1.5px;
+  background: var(--color-white);
+  box-shadow: inset 0 0 0 1.5px var(--color-ink);
+}
+
+/* Attached files */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px 0 6px;
+  list-style: none;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  background: var(--color-chip);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.chipName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.chipRemove:hover {
+  background: var(--color-ink);
+  color: var(--color-white);
+}
+
+/* Input row: 44px at one line, bottom-aligned as the text grows. */
+
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-input);
+  line-height: 22px;
+  resize: none;
+}
+
+.input::placeholder {
+  color: var(--color-slate-muted);
+  opacity: 1;
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 2px; /* centre on a 32px line */
+  background: var(--color-chip);
+  color: var(--color-ink);
+}
+
+.tool:hover {
+  background: var(--color-hairline);
+}
+
+.tool[data-active='true'] {
+  background: var(--color-ink);
+  color: var(--color-white);
+}
+
+.send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  background: var(--color-trail-yellow);
+  box-shadow: inset 0 0 0 1.5px var(--color-ink);
+  color: var(--color-ink);
+}
+
+.send:hover:not(:disabled) {
+  background: var(--color-ink);
+  color: var(--color-trail-yellow);
+}
+
+.send:disabled {
+  background: var(--color-chip);
+  box-shadow: inset 0 0 0 1.5px var(--color-hairline);
+  color: var(--color-slate-faint);
+}
+
+.note {
+  width: min(var(--column-width), 100%);
+  margin: 0;
+  color: var(--color-slate-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.note[data-notice='true'] {
+  color: var(--color-ink);
+}

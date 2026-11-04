@@ -1,0 +1,135 @@
+/* Argo's voice: Inter Tight in ink, bold at 600. Size comes from --text-body;
+   everything below is relative to it. */
+.prose {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+
+.prose > * {
+  margin: 0;
+}
+
+.prose > * + * {
+  margin-top: 0.75em;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.prose h1 {
+  font-size: 1.4em;
+  line-height: 1.3;
+}
+
+.prose h2 {
+  font-size: 1.2em;
+  line-height: 1.3;
+}
+
+.prose h3,
+.prose h4 {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 24px;
+}
+
+.prose li + li {
+  margin-top: 3px;
+}
+
+.prose li::marker {
+  color: var(--color-slate);
+}
+
+.prose li > ul,
+.prose li > ol {
+  margin-top: 3px;
+}
+
+.prose a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.prose a:hover {
+  background: var(--color-trail-yellow);
+}
+
+.prose blockquote {
+  padding-left: 20px;
+  border-left: 2px solid var(--color-ink);
+  color: var(--color-slate);
+}
+
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+}
+
+/* Code is the one place the mono face appears inside prose. */
+.prose code {
+  padding: 2px 6px;
+  background: var(--color-chip);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  line-height: 1;
+}
+
+.prose pre {
+  padding: 10px 14px;
+  overflow-x: auto;
+  background: var(--color-chip);
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  line-height: 1.65;
+}
+
+.prose pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.875em;
+  line-height: 1.5;
+}
+
+.prose th,
+.prose td {
+  padding: 5px 16px 5px 0;
+  border-bottom: 1px solid var(--color-hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  font-weight: 600;
+}
+
+.prose img {
+  max-width: 100%;
+}

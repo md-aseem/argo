@@ -1,0 +1,70 @@
+.argo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary {
+  align-self: flex-start;
+  min-width: 0;
+  color: var(--color-slate-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 14px;
+  text-align: left;
+}
+
+.summary:hover {
+  color: var(--color-ink);
+}
+
+.caret {
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+
+.summary[aria-expanded='true'] .caret {
+  transform: rotate(90deg);
+}
+
+.calls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-slate);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.call {
+  display: flex;
+  gap: 12px;
+}
+
+.callName {
+  flex-shrink: 0;
+  color: var(--color-ink);
+}
+
+.callArgs {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-slate-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.callState {
+  flex-shrink: 0;
+}
+
+.artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from google.adk.agents.llm_agent import Agent
+from google.adk.skills import load_skill_from_dir
 
 # Kept in a file so the agent's behaviour can be tuned without touching code.
 INSTRUCTION = (Path(__file__).parent / "instruction.md").read_text(encoding="utf-8").strip()

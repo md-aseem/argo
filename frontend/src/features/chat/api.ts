@@ -23,6 +23,11 @@ export async function fetchSession(id: string, signal: AbortSignal): Promise<Api
   return res.json()
 }
 
+export async function deleteSession(id: string): Promise<void> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await errorText(res))
+}
+
 function parseFrame(frame: string): StreamEvent | null {
   let type = 'message'
   const data: string[] = []

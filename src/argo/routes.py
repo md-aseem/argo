@@ -304,6 +304,12 @@ async def get_session(session_id: str) -> dict[str, Any]:
     return {**summarize(session), "messages": await history(session)}
 
 
+@router.delete("/api/sessions/{session_id}", status_code=204)
+async def delete_session(session_id: str) -> Response:
+    await sessions.delete_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+    return Response(status_code=204)
+
+
 @router.post("/api/chat")
 async def chat(body: ChatIn) -> StreamingResponse:
     content = build_user_content(body)

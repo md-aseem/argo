@@ -18,7 +18,12 @@ export function useSessions() {
       })
   }, [])
 
+  const remove = useCallback((id: string) => {
+    inflight.current?.abort()
+    setSessions((all) => all.filter((session) => session.id !== id))
+  }, [])
+
   useEffect(() => () => inflight.current?.abort(), [])
 
-  return { sessions, refresh }
+  return { sessions, refresh, remove }
 }

@@ -112,7 +112,8 @@
 
 .row {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 36px;
   padding: 0 20px;
   overflow: hidden;
@@ -124,13 +125,59 @@
   white-space: nowrap;
 }
 
-.row:hover {
+.item {
+  display: flex;
+  align-items: center;
+  padding-right: 12px;
+}
+
+.item:hover {
   background: var(--color-chip);
 }
 
-.row[aria-current='page'] {
+.item[data-current='true'] {
   background: var(--color-trail-yellow);
+}
+
+.row[aria-current='page'] {
   font-weight: 500;
+}
+
+.delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  color: var(--color-slate);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.item:hover .delete,
+.item:focus-within .delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.delete:hover,
+.delete:focus-visible {
+  background: var(--color-tape-pink);
+  color: var(--color-ink);
+}
+
+.item:hover .delete:disabled,
+.item:focus-within .delete:disabled {
+  opacity: 0.4;
+}
+
+.error {
+  margin: 0;
+  padding: 12px 20px;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  background: var(--color-tape-pink);
 }
 
 /* User, pinned to the bottom */

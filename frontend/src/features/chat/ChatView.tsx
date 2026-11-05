@@ -25,8 +25,8 @@ function initialCollapsed(): boolean {
 }
 
 export function ChatView() {
-  const { session, messages, loading, busy, send, stop, reset, switchTo } = useChat()
-  const { sessions, refresh } = useSessions()
+  const { session, messages, loading, busy, send, stop, reset, switchTo, remove } = useChat()
+  const { sessions, refresh, remove: removeFromList } = useSessions()
   const [collapsed, setCollapsed] = useState(initialCollapsed)
 
   useEffect(() => {
@@ -51,6 +51,12 @@ export function ChatView() {
     })
   }, [])
 
+  const deleteChat = useCallback(async (id: string) => {
+    await remove(id)
+    removeFromList(id)
+    refresh()
+  }, [remove, removeFromList, refresh])
+
   return (
     <div className={styles.view}>
       <Sidebar
@@ -60,6 +66,7 @@ export function ChatView() {
         onToggle={toggle}
         onNewChat={reset}
         onSelect={switchTo}
+        onDelete={deleteChat}
         userName={USER_NAME}
         userInitials={USER_INITIALS}
       />

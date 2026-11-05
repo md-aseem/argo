@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchSession, streamChat } from './api'
+import { deleteSession, fetchSession, streamChat } from './api'
 import type {
   ApiArgoMessage,
   ArgoMessage,
@@ -208,5 +208,11 @@ export function useChat() {
     [cancelAll, load],
   )
 
-  return { session, messages, loading, busy, send, stop, reset, switchTo }
+  const remove = useCallback(async (id: string) => {
+    if (id === sessionId.current || id === sessionIdFromUrl()) cancelAll()
+    await deleteSession(id)
+    if (id === sessionId.current || id === sessionIdFromUrl()) reset()
+  }, [cancelAll, reset])
+
+  return { session, messages, loading, busy, send, stop, reset, switchTo, remove }
 }

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// The Argo API (src/main.py) runs on :8000 (override with ARGO_API). Proxying
+// The Argo API (src/argo/main.py) runs on :8000 (override with ARGO_API). Proxying
 // keeps the browser on one origin, so no CORS and SSE streams straight through.
 export default defineConfig({
   plugins: [react()],

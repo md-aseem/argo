@@ -37,7 +37,7 @@ export interface ArgoMessage {
 
 export type Message = UserMessage | ArgoMessage
 
-// ── wire format (see src/main.py) ───────────────────────────────────────────
+// ── wire format (see src/argo/routes.py) ───────────────────────────────────────────
 
 /** One row of GET /api/sessions. `updated_at` is Unix time in seconds. */
 export interface SessionSummary extends SessionInfo {

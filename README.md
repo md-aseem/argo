@@ -1,9 +1,9 @@
 # Argo
 
-Argo is Aseem's personal AI agent: a Google ADK agent (`src/agent.py`) with a chat UI.
+Argo is Aseem's personal AI agent: a Google ADK agent (`src/argo/agent.py`) with a chat UI.
 
 ```
-src/        the agent (agent.py) and its HTTP API (main.py)
+src/argo/   the agent (agent.py), API routes (routes.py), and entry point (main.py)
 frontend/   the chat UI: Vite + React + TypeScript
 ```
 
@@ -79,7 +79,7 @@ To stop either server, press Ctrl+C in its terminal.
 
 ## How it fits together
 
-- **Conversations** are stored in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The logo in the top bar starts a new chat.
+- **Conversations** are stored in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The New chat button in the sidebar starts a new chat.
 - **Replies stream** over server-sent events from `POST /api/chat`. The API turns ADK events into `text`, `tool`, `tool_result`, `artifact`, `error` and `done`; the UI renders them as they arrive.
 - **Tools**: any tool you add to the agent shows up in the reply header (`read_file · write_file ›`, click to expand) and in the status line while it runs.
 - **Files Argo saves** (ADK artifacts, via `tool_context.save_artifact`) appear as rows under the reply with a VIEW link. They are kept in `src/.adk/artifacts/`.

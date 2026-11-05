@@ -18,6 +18,11 @@
   box-shadow: inset 0 0 0 1.5px var(--color-ink);
 }
 
+/* Active: the ink stroke turns yellow. */
+.box:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--color-field-focus);
+}
+
 /* Attached files */
 
 .chips {

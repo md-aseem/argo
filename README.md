@@ -24,11 +24,9 @@ frontend/   the chat UI: Vite + React + TypeScript
 From the repo root:
 
 ```sh
-uv sync --no-install-project   # Python dependencies into .venv
+uv sync                        # Python dependencies into .venv
 cd frontend && npm install     # frontend dependencies
 ```
-
-Use `--no-install-project` here: a plain `uv sync` or `uv run` tries to build the `argo` package, and fails because `pyproject.toml` expects it at `src/argo/` while the code lives in `src/`.
 
 ## Start the app (development)
 
@@ -37,7 +35,7 @@ Two terminals, both from the repo root.
 **1. API** on port 8000:
 
 ```sh
-.venv/bin/uvicorn src.main:app --reload --reload-dir src --port 8000
+.venv/bin/uvicorn argo.main:app --app-dir src --reload --reload-dir src --port 8000
 ```
 
 **2. Chat UI** on port 5173, with hot reload. It proxies `/api` to the API.
@@ -63,7 +61,7 @@ npm run build
 **2. Start the API** (no `--reload`), from the repo root:
 
 ```sh
-.venv/bin/uvicorn src.main:app --port 8000
+.venv/bin/uvicorn argo.main:app --app-dir src --port 8000
 ```
 
 **3. Serve the build** on port 4173, proxying `/api` to the API:

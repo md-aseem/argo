@@ -25,10 +25,12 @@ from typing import Any, AsyncIterator
 from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
+# .env and the .adk state folder live in src/, one level above the package.
+DATA_DIR = HERE.parent
 
 # The Google client reads its project/location settings from the environment,
 # so this must happen before the agent is imported.
-load_dotenv(HERE / ".env")
+load_dotenv(DATA_DIR / ".env")
 
 from fastapi import FastAPI, HTTPException  # noqa: E402
 from fastapi.responses import Response, StreamingResponse  # noqa: E402
@@ -46,10 +48,10 @@ from .agent import root_agent  # noqa: E402
 log = logging.getLogger("argo")
 
 # ADK expects the app name to match the directory the agent lives in.
-APP_NAME = HERE.name
+APP_NAME = DATA_DIR.name  # "src": keeps existing sessions in .adk/ visible
 USER_ID = "aseem"
 
-STATE_DIR = HERE / ".adk"  # git-ignored
+STATE_DIR = DATA_DIR / ".adk"  # git-ignored
 STATE_DIR.mkdir(exist_ok=True)
 
 sessions = SqliteSessionService(str(STATE_DIR / "argo.db"))
@@ -360,3 +362,10 @@ async def get_artifact(session_id: str, name: str, version: int | None = None) -
             headers["Content-Disposition"] = f'attachment; filename="{Path(name).name}"'
         return Response(part.inline_data.data, media_type=mime, headers=headers)
     return Response(part.text or "", media_type="text/plain; charset=utf-8", headers=headers)
+
+
+def main() -> None:
+    """Entry point for the `argo` console script: serve the API on port 8000."""
+    import uvicorn
+
+    uvicorn.run("argo.main:app", host="127.0.0.1", port=8000)

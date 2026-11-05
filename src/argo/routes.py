@@ -23,7 +23,6 @@ load_dotenv(DATA_DIR / ".env")
 from fastapi import APIRouter, HTTPException  # noqa: E402
 from fastapi.responses import Response, StreamingResponse  # noqa: E402
 from google.adk.agents.run_config import RunConfig, StreamingMode  # noqa: E402
-from google.adk.artifacts import FileArtifactService  # noqa: E402
 from google.adk.events import Event  # noqa: E402
 from google.adk.runners import Runner  # noqa: E402
 from google.adk.sessions import Session  # noqa: E402
@@ -32,6 +31,7 @@ from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 from .agent import root_agent  # noqa: E402
+from .artifacts import ArtifactStore  # noqa: E402
 
 log = logging.getLogger("argo")
 
@@ -43,12 +43,14 @@ STATE_DIR = DATA_DIR / ".adk"  # git-ignored
 STATE_DIR.mkdir(exist_ok=True)
 
 sessions = SqliteSessionService(str(STATE_DIR / "argo.db"))
-artifacts = FileArtifactService(root_dir=str(STATE_DIR / "artifacts"))
+
+artifacts = ArtifactStore(APP_NAME, USER_ID)
+
 runner = Runner(
     agent=root_agent,
     app_name=APP_NAME,
     session_service=sessions,
-    artifact_service=artifacts,
+    artifact_service=artifacts.service,
 )
 
 # Gemini accepts these directly; any other upload must be readable as UTF-8
@@ -116,12 +118,14 @@ def summarize(session: Session) -> dict[str, Any]:
     }
 
 
-def build_user_content(body: ChatIn) -> types.Content:
+def build_user_content(body: ChatIn) -> tuple[types.Content, list[tuple[str, types.Part]]]:
+    """The message for the model, plus each upload as (filename, raw-bytes part) to store."""
     text = body.text.strip()
     if not text and not body.attachments:
         raise HTTPException(400, "Message is empty")
 
     parts: list[types.Part] = [types.Part(text=text)] if text else []
+    uploads: list[tuple[str, types.Part]] = []
     total = 0
     for att in body.attachments:
         try:
@@ -134,6 +138,7 @@ def build_user_content(body: ChatIn) -> types.Content:
 
         name = Path(att.name.replace("\n", " ")).name[:200] or "file"
         mime = att.mime_type or mimetypes.guess_type(name)[0] or "application/octet-stream"
+        uploads.append((name, types.Part(inline_data=types.Blob(mime_type=mime, data=raw))))
         if mime in INLINE_MIME_TYPES or mime.startswith(INLINE_MIME_PREFIXES):
             parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}"))
             parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=raw)))
@@ -143,29 +148,12 @@ def build_user_content(body: ChatIn) -> types.Content:
         except UnicodeDecodeError:
             raise HTTPException(415, f"{name}: unsupported file type") from None
         parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}\n\n{body_text}"))
-    return types.Content(role="user", parts=parts)
+    return types.Content(role="user", parts=parts), uploads
 
 
 async def next_number() -> int:
     existing = await sessions.list_sessions(app_name=APP_NAME, user_id=USER_ID)
     return max((s.state.get("number") or 0 for s in existing.sessions), default=0) + 1
-
-
-async def describe_artifact(session_id: str, name: str, version: int) -> dict[str, Any]:
-    """Artifact metadata for the chat row: name plus a line count for text files."""
-    info: dict[str, Any] = {"name": name, "version": version, "lines": None, "mime": None}
-    part = await artifacts.load_artifact(
-        app_name=APP_NAME, user_id=USER_ID, session_id=session_id,
-        filename=name, version=version,
-    )
-    if part is None:
-        return info
-    if part.inline_data:
-        info["mime"] = part.inline_data.mime_type
-    elif part.text is not None:
-        info["mime"] = "text/plain"
-        info["lines"] = len(part.text.splitlines())
-    return info
 
 
 # ── streaming ───────────────────────────────────────────────────────────────
@@ -211,7 +199,7 @@ class RunTranslator:
         self._streamed_text = False
 
         for name, version in (event.actions.artifact_delta or {}).items():
-            out.append(("artifact", await describe_artifact(self.session_id, name, version)))
+            out.append(("artifact", await artifacts.describe(self.session_id, name, version)))
         return out
 
 
@@ -278,7 +266,7 @@ async def history(session: Session) -> list[dict[str, Any]]:
                 call = part.function_call
                 argo["tools"].append({"id": call.id or call.name, "name": call.name, "args": call.args or {}})
         for name, version in (event.actions.artifact_delta or {}).items():
-            argo["artifacts"].append(await describe_artifact(session.id, name, version))
+            argo["artifacts"].append(await artifacts.describe(session.id, name, version))
 
     # Drop shells left by events with nothing to show (e.g. thought signatures only).
     return [
@@ -312,7 +300,7 @@ async def delete_session(session_id: str) -> Response:
 
 @router.post("/api/chat")
 async def chat(body: ChatIn) -> StreamingResponse:
-    content = build_user_content(body)
+    content, uploads = build_user_content(body)
     if body.session_id:
         session = await sessions.get_session(
             app_name=APP_NAME, user_id=USER_ID, session_id=body.session_id
@@ -325,6 +313,8 @@ async def chat(body: ChatIn) -> StreamingResponse:
             user_id=USER_ID,
             state={"number": await next_number(), "title": derive_title(body.text, body.attachments)},
         )
+    for name, part in uploads:
+        await artifacts.save(session.id, name, part)
     return StreamingResponse(
         stream_run(session, content),
         media_type="text/event-stream",
@@ -340,10 +330,7 @@ INLINE_SAFE = re.compile(r"^(image/(png|jpeg|gif|webp)|application/pdf)$")
 @router.get("/api/sessions/{session_id}/artifacts/{name:path}")
 async def get_artifact(session_id: str, name: str, version: int | None = None) -> Response:
     try:
-        part = await artifacts.load_artifact(
-            app_name=APP_NAME, user_id=USER_ID, session_id=session_id,
-            filename=name, version=version,
-        )
+        part = await artifacts.load(session_id, name, version)
     except ValueError:
         raise HTTPException(400, "Invalid artifact name") from None
     if part is None:

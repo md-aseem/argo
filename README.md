@@ -17,6 +17,7 @@ frontend/   the chat UI: Vite + React + TypeScript
   GOOGLE_GENAI_USE_ENTERPRISE=...
   GOOGLE_CLOUD_PROJECT=...
   GOOGLE_CLOUD_LOCATION=...
+  GOOGLE_CLOUD_BUCKET=...   # GCS bucket where artifacts are saved/loaded (required)
   ```
 
 ## Set up (first time)
@@ -82,8 +83,9 @@ To stop either server, press Ctrl+C in its terminal.
 - **Conversations** are stored in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The New chat button in the sidebar starts a new chat.
 - **Replies stream** over server-sent events from `POST /api/chat`. The API turns ADK events into `text`, `tool`, `tool_result`, `artifact`, `error` and `done`; the UI renders them as they arrive.
 - **Tools**: any tool you add to the agent shows up in the reply header (`read_file · write_file ›`, click to expand) and in the status line while it runs.
-- **Files Argo saves** (ADK artifacts, via `tool_context.save_artifact`) appear as rows under the reply with a VIEW link. They are kept in `src/.adk/artifacts/`.
-- **Attachments**: PDFs, images, audio and video are sent to the model as-is; any other file must be UTF-8 text. 15 MB total per message.
+- **Files Argo saves** (ADK artifacts, via `tool_context.save_artifact`) appear as rows under the reply with a VIEW link. They are stored in the GCS bucket named by `GOOGLE_CLOUD_BUCKET` (see below).
+- **Attachments**: PDFs, images, audio and video are sent to the model as-is; any other file must be UTF-8 text. 15 MB total per message. Each upload is also saved to the artifact bucket.
+- **Artifact storage**: files the agent saves and files you attach are kept in the GCS bucket `GOOGLE_CLOUD_BUCKET` (the API won't start without it). Objects are laid out as `<app>/<user>/<session>/<filename>/<version>`, where `<app>` is `src`, `<user>` is `aseem`, `<session>` is the conversation id (the `?s=` value in the URL) and `<version>` starts at `0`; saving the same filename again in a session adds a new version. Your Google credentials need write access to the bucket.
 
 ## API
 

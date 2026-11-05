@@ -9,7 +9,9 @@ AGENT_DIR = Path(__file__).parent
 # Kept in a file so the agent's behaviour can be tuned without touching code.
 INSTRUCTION = (AGENT_DIR / "instruction.md").read_text(encoding="utf-8").strip()
 
-skill_toolset = SkillToolset(skills=load_skills_from_dir(AGENT_DIR / "skills"))
+skill_toolset = SkillToolset(
+    skills=load_skills_from_dir(AGENT_DIR / "skills"),
+)
 
 root_agent = Agent(
     model='gemini-3.8-flash',

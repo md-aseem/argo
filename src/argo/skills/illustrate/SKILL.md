@@ -23,3 +23,6 @@ Before building, read [references/style-guide.md](references/style-guide.md) for
 - Use semantic HTML and CSS for structure; use inline SVG where connectors or plotted shapes improve the explanation. Include visible labels and a short text equivalent for a diagram whose meaning is otherwise only visual.
 - Keep the visual hierarchy quiet.
 
+## Display in chat
+
+Return the complete HTML document in a fenced code block labeled `html`. The UI automatically renders that block as a graphic, fitting it to the chat width and adjusting its height to the content. Use inline CSS, inline JavaScript, inline SVG, and data URLs; the preview blocks external network requests. Add a brief caption only if useful. No file-saving tool is needed.

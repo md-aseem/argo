@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import mimetypes
 import re
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -32,6 +30,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 from .agent import root_agent  # noqa: E402
 from .artifacts import ArtifactStore  # noqa: E402
+from .attachments import AttachmentIn, attached_name, process_attachments  # noqa: E402
 
 log = logging.getLogger("argo")
 
@@ -53,24 +52,12 @@ runner = Runner(
     artifact_service=artifacts.service,
 )
 
-# Gemini accepts these directly; any other upload must be readable as UTF-8
-# text, which is then sent inline as a text part.
-INLINE_MIME_PREFIXES = ("image/", "audio/", "video/")
-INLINE_MIME_TYPES = {"application/pdf"}
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # Vertex caps a request at ~20 MB
-ATTACHED_PREFIX = "Attached file: "  # marks attachment parts so history can rebuild them
 TITLE_MAX = 48
 
 router = APIRouter()
 
 
 # ── request models ──────────────────────────────────────────────────────────
-
-
-class AttachmentIn(BaseModel):
-    name: str
-    mime_type: str = ""
-    data: str  # base64
 
 
 class ChatIn(BaseModel):
@@ -124,31 +111,9 @@ def build_user_content(body: ChatIn) -> tuple[types.Content, list[tuple[str, typ
     if not text and not body.attachments:
         raise HTTPException(400, "Message is empty")
 
-    parts: list[types.Part] = [types.Part(text=text)] if text else []
-    uploads: list[tuple[str, types.Part]] = []
-    total = 0
-    for att in body.attachments:
-        try:
-            raw = base64.b64decode(att.data, validate=True)
-        except ValueError:
-            raise HTTPException(400, f"{att.name}: not valid base64") from None
-        total += len(raw)
-        if total > MAX_UPLOAD_BYTES:
-            raise HTTPException(413, "Attachments are too large (15 MB max in total)")
-
-        name = Path(att.name.replace("\n", " ")).name[:200] or "file"
-        mime = att.mime_type or mimetypes.guess_type(name)[0] or "application/octet-stream"
-        uploads.append((name, types.Part(inline_data=types.Blob(mime_type=mime, data=raw))))
-        if mime in INLINE_MIME_TYPES or mime.startswith(INLINE_MIME_PREFIXES):
-            parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}"))
-            parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=raw)))
-            continue
-        try:
-            body_text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            raise HTTPException(415, f"{name}: unsupported file type") from None
-        parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}\n\n{body_text}"))
-    return types.Content(role="user", parts=parts), uploads
+    parts = [types.Part(text=text)] if text else []
+    attached, uploads = process_attachments(body.attachments)
+    return types.Content(role="user", parts=parts + attached), uploads
 
 
 async def next_number() -> int:
@@ -244,8 +209,8 @@ async def history(session: Session) -> list[dict[str, Any]]:
             for part in parts:
                 if not part.text:
                     continue
-                if part.text.startswith(ATTACHED_PREFIX):
-                    files.append({"name": part.text[len(ATTACHED_PREFIX):].split("\n", 1)[0]})
+                if (name := attached_name(part.text)) is not None:
+                    files.append({"name": name})
                 else:
                     texts.append(part.text)
             messages.append({

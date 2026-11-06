@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argo
+spec:
+  # Conversations live in Cloud SQL, not on the pod, so pods are interchangeable:
+  # updates roll out with no downtime, and replicas can go above 1.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argo
+  template:
+    metadata:
+      labels:
+        app: argo
+    spec:
+      serviceAccountName: argo
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      initContainers:
+        # Cloud SQL Auth Proxy, as a "native sidecar" (an init container with
+        # restartPolicy: Always): it starts before the app, keeps running beside
+        # it, and stops after it. The app connects to it on 127.0.0.1:5432; the
+        # proxy handles TLS and logs in to Postgres as the pod's Google service
+        # account (--auto-iam-authn), so there is no database password anywhere.
+        - name: cloud-sql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.3
+          restartPolicy: Always
+          args:
+            - --auto-iam-authn
+            - --structured-logs
+            - --port=5432
+            - ${DB_CONNECTION_NAME}
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      containers:
+        - name: argo
+          # Short name on purpose: kustomization.yaml swaps in the full
+          # Artifact Registry path and the version tag.
+          image: argo
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: argo
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            # Autopilot bills by these requests (and sets limits equal to them).
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /argo/api/health
+              port: 8000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /argo/api/health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 30

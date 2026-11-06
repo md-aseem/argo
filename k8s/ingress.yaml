@@ -1,0 +1,24 @@
+# Creates the Google Cloud load balancer. Requires a reserved global static IP
+# named argo-ip (see docs/deploy.md).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argo
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: argo-ip
+    networking.gke.io/managed-certificates: argo
+    networking.gke.io/v1beta1.FrontendConfig: argo
+spec:
+  rules:
+    - host: ${DOMAIN}
+      http:
+        paths:
+          # Prefix /argo matches /argo and everything below it.
+          - path: /argo
+            pathType: Prefix
+            backend:
+              service:
+                name: argo
+                port:
+                  number: 80

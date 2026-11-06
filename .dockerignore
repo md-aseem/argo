@@ -1,9 +1,13 @@
 .git
+.github
 .venv
 .vscode
 **/__pycache__
-frontend
+**/node_modules
+frontend/dist
 docs
+k8s
+scripts
 tests
-src/.env
+.env
 src/.adk

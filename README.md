@@ -78,6 +78,39 @@ Open http://localhost:4173.
 
 To stop either server, press Ctrl+C in its terminal.
 
+## Run the API with Docker
+
+The [Dockerfile](Dockerfile) packages the API only (not the chat UI). It needs the same `src/.env` and Google credentials as above, but neither is baked into the image (both are in `.dockerignore`), so you pass them in when you run it.
+
+**1. Build the image**, from the repo root:
+
+```sh
+docker build -t argo .
+```
+
+**2. Run it** on port 8000:
+
+```sh
+docker run --rm -p 8000:8000 \
+  --env-file src/.env \
+  -v "$HOME/.config/gcloud:/root/.config/gcloud:ro" \
+  -v argo-data:/app/src/.adk \
+  argo
+```
+
+- `--env-file src/.env` supplies the `GOOGLE_*` settings. Write the values without quotes, because Docker keeps quotes literally.
+- The `gcloud` mount shares the credentials from `gcloud auth application-default login`. Skip it if you run somewhere with its own service account (Cloud Run, GCE).
+- The `argo-data` volume keeps conversations (`argo.db`) across container restarts. Leave it out for throwaway runs.
+
+**3. Start the chat UI** against the container, in a second terminal. The UI step is the same as in development:
+
+```sh
+cd frontend
+npm run dev
+```
+
+Open http://localhost:5173. To stop the container, press Ctrl+C.
+
 ## How it fits together
 
 - **Conversations** are stored in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The New chat button in the sidebar starts a new chat.

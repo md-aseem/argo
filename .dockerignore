@@ -1,0 +1,9 @@
+.git
+.venv
+.vscode
+**/__pycache__
+frontend
+docs
+tests
+src/.env
+src/.adk

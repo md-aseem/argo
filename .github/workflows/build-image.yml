@@ -4,7 +4,7 @@
 #   uvx bump2version patch      # or minor / major; commits and tags vX.Y.Z
 #   git push --follow-tags
 #
-# One-time Google Cloud + GitHub setup is in docs/deploy.md. This workflow needs
+# scripts/setup.sh set up GitHub's access (see docs/production.md). This workflow needs
 # these repository variables (Settings > Secrets and variables > Actions >
 # Variables); none of them are secrets:
 #   GCP_PROJECT_ID, GCP_REGION,

@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: argo
 spec:
-  # Conversations live in Cloud SQL, not on the pod, so pods are interchangeable:
+  # Conversations live in Cloud SQL, so pods are interchangeable:
   # updates roll out with no downtime, and replicas can go above 1.
   replicas: 1
   selector:

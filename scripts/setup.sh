@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# One-time Google Cloud setup for Argo, driven by .env.
+# Google Cloud setup for Argo, driven by .env. Re-run it to repair permissions
+# or to add people to IAP_MEMBERS.
 #
 #   scripts/setup.sh
 #
 # Safe to re-run: every step checks whether its resource already exists, so it
 # skips what's done and only creates what's missing. Needs gcloud (logged in as
-# a project owner) and kubectl. See docs/deploy.md for what each step is for.
+# a project owner) and kubectl. See docs/production.md for what it set up.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
@@ -144,7 +145,7 @@ if [[ -n ${IAP_CLIENT_ID:-} && -n ${IAP_CLIENT_SECRET:-} ]]; then
 else
   iap_ready=no
   note "IAP_CLIENT_ID / IAP_CLIENT_SECRET are empty in .env. Create the OAuth"
-  note "client as described in docs/deploy.md (\"Google login\"), fill them in, and re-run."
+  note "client (APIs & Services > Credentials), fill them in, and re-run."
 fi
 IFS=',' read -r -a members <<<"${IAP_MEMBERS:-}"
 for member in ${members[@]+"${members[@]}"}; do # (the odd form survives an empty list on macOS bash 3.2)

@@ -1,5 +1,5 @@
 # Creates the Google Cloud load balancer. Requires a reserved global static IP
-# named argo-ip (see docs/deploy.md).
+# named argo-ip (see docs/production.md).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

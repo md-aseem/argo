@@ -12,7 +12,7 @@ frontend/   the chat UI: Vite + React + TypeScript
 - [uv](https://docs.astral.sh/uv/) and Python 3.15 (see `.python-version`; uv fetches it if needed)
 - Node.js 20.19+ or 22.12+, and npm
 - Google Cloud access for Vertex AI. Sign in once with `gcloud auth application-default login`.
-- `.env` at the repo root (git-ignored): `cp .env.example .env` and fill in `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_BUCKET`. That's all a local run needs; the rest of the file is for deploying. Conversations go to a local SQLite file unless you set `DATABASE_URL`.
+- `.env` at the repo root (git-ignored): `cp .env.example .env` and fill in `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_BUCKET`. That's all a local run needs; the rest of the file is used by the production scripts. Conversations go to a local SQLite file unless you set `DATABASE_URL`.
 
 ## Set up (first time)
 
@@ -89,16 +89,9 @@ docker run --rm -p 8000:8000 \
 
 Open http://localhost:8000/argo/. To stop the container, press Ctrl+C.
 
-## Deploy to GKE
+## Production
 
-Argo runs on GKE at `<domain>/argo/`, with conversations in Cloud SQL (Postgres). The cloud setup reads the same `.env`:
-
-```sh
-# fill in the deploy section of .env (region, domain, who can sign in, ...)
-scripts/setup.sh                   # one-time Google Cloud setup (safe to re-run)
-```
-
-Then for each release:
+Argo is live at https://muhammadaseem.com/argo/, on GKE behind a Google login, with conversations in Cloud SQL (Postgres). To ship a change:
 
 ```sh
 uvx bump2version patch     # or minor / major; bumps the version, commits, tags
@@ -106,7 +99,7 @@ git push --follow-tags     # CI builds and pushes the image
 scripts/deploy.sh          # roll it out
 ```
 
-The full walkthrough, including the one manual step (the Google login's OAuth client), is in [docs/deploy.md](docs/deploy.md).
+How it's put together, what's running where, and what to check when something breaks: [docs/production.md](docs/production.md).
 
 ## How it fits together
 

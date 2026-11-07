@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+.vscode
+**/__pycache__
+**/node_modules
+frontend/dist
+docs
+k8s
+scripts
+tests
+.env
+src/.adk

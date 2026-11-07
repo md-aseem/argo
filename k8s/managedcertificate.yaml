@@ -1,0 +1,9 @@
+# Free, auto-renewing HTTPS certificate. Becomes Active ~10-60 min after DNS
+# for the domain points at the Ingress IP.
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: argo
+spec:
+  domains:
+    - ${DOMAIN}

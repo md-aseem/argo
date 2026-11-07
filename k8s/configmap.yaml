@@ -1,0 +1,15 @@
+# The app's settings (the in-cluster equivalent of the app section of .env). ${VARS} are filled
+# from .env by scripts/deploy.sh; don't edit them here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argo
+data:
+  GOOGLE_GENAI_USE_ENTERPRISE: "1"
+  GOOGLE_CLOUD_PROJECT: "${PROJECT_ID}"
+  GOOGLE_CLOUD_LOCATION: "${VERTEX_LOCATION}"
+  GOOGLE_CLOUD_BUCKET: "${BUCKET}"
+  # Through the Cloud SQL proxy sidecar. The user is the app's Google service
+  # account as Cloud SQL names it (argo-app@<project>.iam); the @ is %40 here.
+  # No password: the proxy logs in with the service account's identity.
+  DATABASE_URL: "postgresql+asyncpg://argo-app%40${PROJECT_ID}.iam@127.0.0.1:5432/${DB_NAME}"

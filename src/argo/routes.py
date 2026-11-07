@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -11,19 +12,22 @@ from typing import Any, AsyncIterator
 from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
-# .env and the .adk state folder live in src/, one level above the package.
+# The .adk state folder lives in src/, one level above the package.
 DATA_DIR = HERE.parent
+REPO_ROOT = DATA_DIR.parent
 
 # The Google client reads its project/location settings from the environment,
-# so this must happen before the agent is imported.
-load_dotenv(DATA_DIR / ".env")
+# so this must happen before the agent is imported. .env is at the repo root
+# (see .env.example); in the cluster the settings come from the ConfigMap.
+load_dotenv(REPO_ROOT / ".env")
 
 from fastapi import APIRouter, HTTPException  # noqa: E402
 from fastapi.responses import Response, StreamingResponse  # noqa: E402
 from google.adk.agents.run_config import RunConfig, StreamingMode  # noqa: E402
 from google.adk.events import Event  # noqa: E402
 from google.adk.runners import Runner  # noqa: E402
-from google.adk.sessions import Session  # noqa: E402
+from google.adk.sessions import BaseSessionService, Session  # noqa: E402
+from google.adk.sessions.database_session_service import DatabaseSessionService  # noqa: E402
 from google.adk.sessions.sqlite_session_service import SqliteSessionService  # noqa: E402
 from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
@@ -39,9 +43,22 @@ APP_NAME = DATA_DIR.name  # "src": keeps existing sessions in .adk/ visible
 USER_ID = "aseem"
 
 STATE_DIR = DATA_DIR / ".adk"  # git-ignored
-STATE_DIR.mkdir(exist_ok=True)
 
-sessions = SqliteSessionService(str(STATE_DIR / "argo.db"))
+
+def make_session_service() -> BaseSessionService:
+    """Postgres when DATABASE_URL is set (production), else a local SQLite file.
+
+    DATABASE_URL looks like postgresql+asyncpg://user@host:5432/dbname. On GKE
+    it points at the Cloud SQL Auth Proxy sidecar on 127.0.0.1 (see k8s/).
+    """
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return DatabaseSessionService(url)
+    STATE_DIR.mkdir(exist_ok=True)
+    return SqliteSessionService(str(STATE_DIR / "argo.db"))
+
+
+sessions = make_session_service()
 
 artifacts = ArtifactStore(APP_NAME, USER_ID)
 
@@ -241,6 +258,12 @@ async def history(session: Session) -> list[dict[str, Any]]:
 
 
 # ── routes ──────────────────────────────────────────────────────────────────
+
+
+@router.get("/api/health")
+async def health() -> dict[str, str]:
+    """Liveness/readiness check for Kubernetes and the load balancer."""
+    return {"status": "ok"}
 
 
 @router.get("/api/sessions")

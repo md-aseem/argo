@@ -1,0 +1,19 @@
+# Tunes the Google load balancer in front of the Service.
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: argo
+spec:
+  # The default is 30s, which would cut off long streamed chat replies.
+  timeoutSec: 3600
+  connectionDraining:
+    drainingTimeoutSec: 60
+  # The load balancer's health check is built from the Deployment's
+  # readinessProbe (/argo/api/health), so it isn't repeated here.
+  #
+  # Google login wall (Identity-Aware Proxy). Needs the iap-oauth Secret
+  # (client_id, client_secret), which scripts/setup.sh creates from .env.
+  iap:
+    enabled: true
+    oauthclientCredentials:
+      secretName: iap-oauth

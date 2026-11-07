@@ -22,7 +22,7 @@ class ArtifactStore:
         # Accept a bare name or a gs://name/ path.
         bucket = os.environ.get(BUCKET_ENV, "").strip().removeprefix("gs://").strip("/")
         if not bucket:
-            raise RuntimeError(f"{BUCKET_ENV} must be set (in src/.env) to a GCS bucket for artifacts")
+            raise RuntimeError(f"{BUCKET_ENV} must be set (in .env) to a GCS bucket for artifacts")
         self.app_name = app_name
         self.user_id = user_id
         # Handed to the ADK Runner, which saves the agent's artifacts through it.

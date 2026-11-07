@@ -1,0 +1,21 @@
+# Deploy with scripts/deploy.sh, which fills the ${VARS} in these files from
+# .env and applies them. (kubectl apply -k k8s/ alone would not fill them.)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argo
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - backendconfig.yaml
+  - service.yaml
+  - managedcertificate.yaml
+  - frontendconfig.yaml
+  - ingress.yaml
+images:
+  - name: argo
+    # newTag is bumped automatically on release by bump2version (see
+    # .bumpversion.cfg); don't edit it by hand.
+    newName: ${REGION}-docker.pkg.dev/${PROJECT_ID}/argo/argo
+    newTag: "0.1.0"

@@ -1,5 +1,8 @@
 import type { ApiSession, ChatRequest, SessionSummary, StreamEvent } from './types'
 
+// The app is served under /argo/ (see vite.config.ts), so API calls go to /argo/api.
+const API = `${import.meta.env.BASE_URL}api`
+
 async function errorText(res: Response): Promise<string> {
   try {
     const body = await res.json()
@@ -12,19 +15,19 @@ async function errorText(res: Response): Promise<string> {
 
 /** All conversations, most recently updated first. */
 export async function fetchSessions(signal: AbortSignal): Promise<SessionSummary[]> {
-  const res = await fetch('/api/sessions', { signal })
+  const res = await fetch(`${API}/sessions`, { signal })
   if (!res.ok) throw new Error(await errorText(res))
   return res.json()
 }
 
 export async function fetchSession(id: string, signal: AbortSignal): Promise<ApiSession> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { signal })
+  const res = await fetch(`${API}/sessions/${encodeURIComponent(id)}`, { signal })
   if (!res.ok) throw new Error(await errorText(res))
   return res.json()
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const res = await fetch(`${API}/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await errorText(res))
 }
 
@@ -44,7 +47,7 @@ export async function* streamChat(
   body: ChatRequest,
   signal: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  const res = await fetch('/api/chat', {
+  const res = await fetch(`${API}/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -68,5 +71,5 @@ export async function* streamChat(
 
 export function artifactUrl(sessionId: string, name: string, version: number): string {
   const path = name.split('/').map(encodeURIComponent).join('/')
-  return `/api/sessions/${encodeURIComponent(sessionId)}/artifacts/${path}?version=${version}`
+  return `${API}/sessions/${encodeURIComponent(sessionId)}/artifacts/${path}?version=${version}`
 }

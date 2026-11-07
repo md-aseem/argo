@@ -9,6 +9,9 @@ data:
   GOOGLE_CLOUD_PROJECT: "${PROJECT_ID}"
   GOOGLE_CLOUD_LOCATION: "${VERTEX_LOCATION}"
   GOOGLE_CLOUD_BUCKET: "${BUCKET}"
+  # Each request's user is the Google account IAP signed in, read from IAP's
+  # signed JWT (see src/argo/auth.py). Requests without a valid one get 401.
+  ARGO_AUTH: "iap"
   # Through the Cloud SQL proxy sidecar. The user is the app's Google service
   # account as Cloud SQL names it (argo-app@<project>.iam); the @ is %40 here.
   # No password: the proxy logs in with the service account's identity.

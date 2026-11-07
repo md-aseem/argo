@@ -21,7 +21,7 @@ REPO_ROOT = DATA_DIR.parent
 # (see .env.example); in the cluster the settings come from the ConfigMap.
 load_dotenv(REPO_ROOT / ".env")
 
-from fastapi import APIRouter, HTTPException  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException  # noqa: E402
 from fastapi.responses import Response, StreamingResponse  # noqa: E402
 from google.adk.agents.run_config import RunConfig, StreamingMode  # noqa: E402
 from google.adk.events import Event  # noqa: E402
@@ -35,12 +35,12 @@ from pydantic import BaseModel, Field  # noqa: E402
 from .agent import root_agent  # noqa: E402
 from .artifacts import ArtifactStore  # noqa: E402
 from .attachments import AttachmentIn, attached_name, process_attachments  # noqa: E402
+from .auth import current_user  # noqa: E402
 
 log = logging.getLogger("argo")
 
 # ADK expects the app name to match the directory the agent lives in.
 APP_NAME = DATA_DIR.name  # "src": keeps existing sessions in .adk/ visible
-USER_ID = "aseem"
 
 STATE_DIR = DATA_DIR / ".adk"  # git-ignored
 
@@ -60,7 +60,7 @@ def make_session_service() -> BaseSessionService:
 
 sessions = make_session_service()
 
-artifacts = ArtifactStore(APP_NAME, USER_ID)
+artifacts = ArtifactStore(APP_NAME)
 
 runner = Runner(
     agent=root_agent,
@@ -133,8 +133,8 @@ def build_user_content(body: ChatIn) -> tuple[types.Content, list[tuple[str, typ
     return types.Content(role="user", parts=parts + attached), uploads
 
 
-async def next_number() -> int:
-    existing = await sessions.list_sessions(app_name=APP_NAME, user_id=USER_ID)
+async def next_number(user: str) -> int:
+    existing = await sessions.list_sessions(app_name=APP_NAME, user_id=user)
     return max((s.state.get("number") or 0 for s in existing.sessions), default=0) + 1
 
 
@@ -151,7 +151,8 @@ class RunTranslator:
     error        {message}
     """
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, user: str, session_id: str) -> None:
+        self.user = user
         self.session_id = session_id
         # With SSE streaming ADK sends the reply as partial chunks and then once
         # more, whole, in the final event. Only forward the whole if no chunks came.
@@ -181,16 +182,16 @@ class RunTranslator:
         self._streamed_text = False
 
         for name, version in (event.actions.artifact_delta or {}).items():
-            out.append(("artifact", await artifacts.describe(self.session_id, name, version)))
+            out.append(("artifact", await artifacts.describe(self.user, self.session_id, name, version)))
         return out
 
 
 async def stream_run(session: Session, content: types.Content) -> AsyncIterator[str]:
     yield sse("session", summarize(session))
-    translator = RunTranslator(session.id)
+    translator = RunTranslator(session.user_id, session.id)
     try:
         async for event in runner.run_async(
-            user_id=USER_ID,
+            user_id=session.user_id,
             session_id=session.id,
             new_message=content,
             run_config=RunConfig(streaming_mode=StreamingMode.SSE),
@@ -248,7 +249,7 @@ async def history(session: Session) -> list[dict[str, Any]]:
                 call = part.function_call
                 argo["tools"].append({"id": call.id or call.name, "name": call.name, "args": call.args or {}})
         for name, version in (event.actions.artifact_delta or {}).items():
-            argo["artifacts"].append(await artifacts.describe(session.id, name, version))
+            argo["artifacts"].append(await artifacts.describe(session.user_id, session.id, name, version))
 
     # Drop shells left by events with nothing to show (e.g. thought signatures only).
     return [
@@ -267,42 +268,42 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/api/sessions")
-async def list_sessions() -> list[dict[str, Any]]:
-    found = await sessions.list_sessions(app_name=APP_NAME, user_id=USER_ID)
+async def list_sessions(user: str = Depends(current_user)) -> list[dict[str, Any]]:
+    found = await sessions.list_sessions(app_name=APP_NAME, user_id=user)
     return sorted((summarize(s) for s in found.sessions), key=lambda s: s["updated_at"], reverse=True)
 
 
 @router.get("/api/sessions/{session_id}")
-async def get_session(session_id: str) -> dict[str, Any]:
-    session = await sessions.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+async def get_session(session_id: str, user: str = Depends(current_user)) -> dict[str, Any]:
+    session = await sessions.get_session(app_name=APP_NAME, user_id=user, session_id=session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
     return {**summarize(session), "messages": await history(session)}
 
 
 @router.delete("/api/sessions/{session_id}", status_code=204)
-async def delete_session(session_id: str) -> Response:
-    await sessions.delete_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+async def delete_session(session_id: str, user: str = Depends(current_user)) -> Response:
+    await sessions.delete_session(app_name=APP_NAME, user_id=user, session_id=session_id)
     return Response(status_code=204)
 
 
 @router.post("/api/chat")
-async def chat(body: ChatIn) -> StreamingResponse:
+async def chat(body: ChatIn, user: str = Depends(current_user)) -> StreamingResponse:
     content, uploads = build_user_content(body)
     if body.session_id:
         session = await sessions.get_session(
-            app_name=APP_NAME, user_id=USER_ID, session_id=body.session_id
+            app_name=APP_NAME, user_id=user, session_id=body.session_id
         )
         if session is None:
             raise HTTPException(404, "Session not found")
     else:
         session = await sessions.create_session(
             app_name=APP_NAME,
-            user_id=USER_ID,
-            state={"number": await next_number(), "title": derive_title(body.text, body.attachments)},
+            user_id=user,
+            state={"number": await next_number(user), "title": derive_title(body.text, body.attachments)},
         )
     for name, part in uploads:
-        await artifacts.save(session.id, name, part)
+        await artifacts.save(user, session.id, name, part)
     return StreamingResponse(
         stream_run(session, content),
         media_type="text/event-stream",
@@ -316,9 +317,11 @@ INLINE_SAFE = re.compile(r"^(image/(png|jpeg|gif|webp)|application/pdf)$")
 
 
 @router.get("/api/sessions/{session_id}/artifacts/{name:path}")
-async def get_artifact(session_id: str, name: str, version: int | None = None) -> Response:
+async def get_artifact(
+    session_id: str, name: str, version: int | None = None, user: str = Depends(current_user)
+) -> Response:
     try:
-        part = await artifacts.load(session_id, name, version)
+        part = await artifacts.load(user, session_id, name, version)
     except ValueError:
         raise HTTPException(400, "Invalid artifact name") from None
     if part is None:

@@ -44,7 +44,7 @@ function applyEvent(msg: ArgoMessage, event: StreamEvent): ArgoMessage {
     case 'tool_result':
       return {
         ...msg,
-        tools: msg.tools.map((t) => (t.id === event.data.id ? { ...t, done: true } : t)),
+        tools: msg.tools.map((t) => (t.id === event.data.id && !t.done ? { ...t, response: event.data.response, done: true } : t)),
         activity: THINKING,
       }
     case 'artifact':

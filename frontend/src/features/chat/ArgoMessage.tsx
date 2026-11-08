@@ -14,6 +14,59 @@ function summarizeTools(tools: ToolCall[]): string {
 
 const preview = (args: Record<string, unknown>) => (Object.keys(args).length ? JSON.stringify(args) : '')
 
+/** Pretty-print a payload; plain strings are shown as-is so newlines read naturally. */
+const pretty = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value, null, 2))
+
+/** load_artifacts output carries `contents: {file: text}`; split it out to show as raw text. */
+function splitContents(response: unknown): { rest: unknown; files: [string, string][] } {
+  if (response && typeof response === 'object' && !Array.isArray(response) && 'contents' in response) {
+    const { contents, ...rest } = response as { contents: Record<string, string> }
+    return { rest, files: Object.entries(contents ?? {}) }
+  }
+  return { rest: response, files: [] }
+}
+
+/** One tool call: a one-line preview that expands into the full input and output. */
+function ToolCallRow({ call }: { call: ToolCall }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <li className={styles.callItem}>
+      <button type="button" className={styles.call} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className={styles.callName}>{call.name}</span>
+        <span className={styles.callArgs}>{preview(call.args)}</span>
+        <span className={styles.callState}>{call.done ? 'done' : '…'}</span>
+      </button>
+      {open && (
+        <div className={styles.callDetail}>
+          <div className={styles.callLabel}>Input</div>
+          <pre className={styles.callBody}>{pretty(call.args)}</pre>
+          <div className={styles.callLabel}>Output</div>
+          {!call.done ? (
+            <pre className={styles.callBody}>Running…</pre>
+          ) : call.response === undefined || call.response === null ? (
+            <pre className={styles.callBody}>(none)</pre>
+          ) : (
+            (() => {
+              const { rest, files } = splitContents(call.response)
+              return (
+                <>
+                  <pre className={styles.callBody}>{pretty(rest)}</pre>
+                  {files.map(([name, text]) => (
+                    <div key={name} className={styles.callDetail}>
+                      <div className={styles.callLabel}>{name}</div>
+                      <pre className={styles.callBody}>{text}</pre>
+                    </div>
+                  ))}
+                </>
+              )
+            })()
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
 interface Props {
   message: ArgoMessage
   /** Needed to link artifacts; null until the server has created the session. */
@@ -41,12 +94,8 @@ export const ArgoMessageView = memo(function ArgoMessageView({ message, sessionI
 
       {open && (
         <ul className={styles.calls}>
-          {tools.map((t) => (
-            <li key={t.id} className={styles.call}>
-              <span className={styles.callName}>{t.name}</span>
-              <span className={styles.callArgs}>{preview(t.args)}</span>
-              <span className={styles.callState}>{t.done ? 'done' : '…'}</span>
-            </li>
+          {tools.map((t, i) => (
+            <ToolCallRow key={`${t.id}-${i}`} call={t} />
           ))}
         </ul>
       )}

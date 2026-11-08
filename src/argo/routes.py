@@ -90,6 +90,42 @@ def sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
+def jsonable(value: Any) -> Any:
+    """Tool payloads can hold non-JSON values; stringify those so they survive the wire."""
+    return json.loads(json.dumps(value, default=str))
+
+
+async def tool_output(user: str, session_id: str, name: str, response: Any) -> Any:
+    """The tool's response as the UI should show it.
+
+    ADK's load_artifacts returns only a status line and injects the file contents
+    straight into the next model request, so they never appear in the response.
+    Load them here so the chat can show what the model actually read.
+    """
+    response = jsonable(response)
+    if name != "load_artifacts" or not isinstance(response, dict):
+        return response
+    contents: dict[str, Any] = {}
+    for fname in response.get("artifact_names") or []:
+        try:
+            part = await artifacts.load(user, session_id, fname)
+        except Exception as exc:  # display only; never break the run over it
+            contents[fname] = f"(could not load: {exc})"
+            continue
+        if part is None:
+            contents[fname] = "(not found)"
+        elif part.text is not None:
+            contents[fname] = part.text
+        elif part.inline_data:
+            data = part.inline_data.data or b""
+            mime = part.inline_data.mime_type
+            if mime and (mime.startswith("text/") or mime in ("application/json", "image/svg+xml")):
+                contents[fname] = data.decode("utf-8", errors="replace")
+            else:
+                contents[fname] = f"({mime or 'binary'}, {len(data)} bytes)"
+    return {**response, "contents": contents}
+
+
 def parts_of(event: Event) -> list[types.Part]:
     return list(event.content.parts) if event.content and event.content.parts else []
 
@@ -146,7 +182,7 @@ class RunTranslator:
 
     text         {delta}                      reply text, in order
     tool         {id, name, args}             the agent started a tool call
-    tool_result  {id, name}                   a tool call finished
+    tool_result  {id, name, response}         a tool call finished, with its output
     artifact     {name, version, lines, mime} the agent saved a file
     error        {message}
     """
@@ -178,7 +214,10 @@ class RunTranslator:
                 out.append(("tool", {"id": call.id or call.name, "name": call.name, "args": call.args or {}}))
             if part.function_response:
                 res = part.function_response
-                out.append(("tool_result", {"id": res.id or res.name, "name": res.name}))
+                out.append(("tool_result", {
+                    "id": res.id or res.name, "name": res.name,
+                    "response": await tool_output(self.user, self.session_id, res.name, res.response),
+                }))
         self._streamed_text = False
 
         for name, version in (event.actions.artifact_delta or {}).items():
@@ -247,7 +286,17 @@ async def history(session: Session) -> list[dict[str, Any]]:
                 argo["text"] += ("\n\n" if argo["text"] else "") + part.text
             if part.function_call:
                 call = part.function_call
-                argo["tools"].append({"id": call.id or call.name, "name": call.name, "args": call.args or {}})
+                argo["tools"].append({
+                    "id": call.id or call.name, "name": call.name,
+                    "args": jsonable(call.args or {}), "response": None,
+                })
+            if part.function_response:
+                res = part.function_response
+                rid = res.id or res.name
+                for tool in reversed(argo["tools"]):
+                    if tool["id"] == rid:
+                        tool["response"] = await tool_output(session.user_id, session.id, res.name, res.response)
+                        break
         for name, version in (event.actions.artifact_delta or {}).items():
             argo["artifacts"].append(await artifacts.describe(session.user_id, session.id, name, version))
 

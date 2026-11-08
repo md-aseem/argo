@@ -40,9 +40,46 @@
   line-height: 16px;
 }
 
+.callItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .call {
   display: flex;
   gap: 12px;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.call:hover .callArgs,
+.call[aria-expanded='true'] .callArgs {
+  color: var(--color-slate);
+}
+
+.callDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 8px 12px;
+  border-left: 1px solid var(--color-slate-faint);
+}
+
+.callLabel {
+  color: var(--color-slate-muted);
+  font-size: 11px;
+}
+
+.callBody {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .callName {

@@ -10,6 +10,8 @@ export interface ToolCall {
   id: string
   name: string
   args: Record<string, unknown>
+  /** The tool's output; undefined until it finishes. */
+  response?: unknown
   done: boolean
 }
 
@@ -48,7 +50,7 @@ export interface ApiArgoMessage {
   id: string
   role: 'argo'
   text: string
-  tools: { id: string; name: string; args: Record<string, unknown> }[]
+  tools: { id: string; name: string; args: Record<string, unknown>; response: unknown }[]
   artifacts: Artifact[]
   error: string | null
 }
@@ -67,7 +69,7 @@ export type StreamEvent =
   | { type: 'session'; data: SessionInfo }
   | { type: 'text'; data: { delta: string } }
   | { type: 'tool'; data: { id: string; name: string; args: Record<string, unknown> } }
-  | { type: 'tool_result'; data: { id: string; name: string } }
+  | { type: 'tool_result'; data: { id: string; name: string; response: unknown } }
   | { type: 'artifact'; data: Artifact }
   | { type: 'error'; data: { message: string } }
   | { type: 'done'; data: Record<string, never> }

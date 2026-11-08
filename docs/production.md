@@ -38,7 +38,7 @@ No passwords or key files exist anywhere. The pod runs as the Google service acc
 | Bucket | `gs://aseems-argo-artifacts` |
 | App identity | Google service account `argo-app`, linked to the Kubernetes service account `argo` |
 | Google login | IAP, with an OAuth client created in the console (stored in the cluster as the Secret `iap-oauth`) |
-| Image builds | `.github/workflows/build-image.yml` in `md-aseem/argo`, on every `vX.Y.Z` tag |
+| Image builds | `.github/workflows/build-image.yml` in `md-aseem/argo`, app and sandbox images on every `vX.Y.Z` tag |
 
 ## Words you'll see
 
@@ -62,10 +62,11 @@ No passwords or key files exist anywhere. The pod runs as the Google service acc
 | [k8s/](../k8s/) | The Kubernetes manifests: namespace, service account, ConfigMap, Deployment (app + proxy sidecar), Service, Ingress, BackendConfig (timeout, IAP), FrontendConfig (HTTPS redirect), ManagedCertificate. `${VARS}` in them are filled from `.env`. |
 | [k8s/kustomization.yaml](../k8s/kustomization.yaml) | Ties the manifests together and pins the image version that's deployed. |
 | [Dockerfile](../Dockerfile) | Builds the UI and packages it with the API into one image. |
-| [.github/workflows/build-image.yml](../.github/workflows/build-image.yml) | Builds and pushes the image when a version tag is pushed. It doesn't deploy. |
+| [.github/workflows/build-image.yml](../.github/workflows/build-image.yml) | Builds and pushes the app and sandbox images when a version tag is pushed. It doesn't deploy. |
 | [scripts/deploy.sh](../scripts/deploy.sh) | Fills in `k8s/` from `.env`, applies it, and waits for the rollout. `--print` shows the filled-in manifests without applying. |
 | [scripts/setup.sh](../scripts/setup.sh) | Creates the Google Cloud side (APIs, registry, IP, bucket, cluster, database, service accounts, permissions, GitHub access, IAP members). It skips anything that already exists, so it's safe to re-run to repair permissions or add sign-in members. |
-| [scripts/build-push.sh](../scripts/build-push.sh) | Builds and pushes the image from your laptop, if GitHub Actions isn't available. |
+| [scripts/build-push.sh](../scripts/build-push.sh) | Builds and pushes both images from your laptop, if GitHub Actions isn't available. |
+| [scripts/deploy-sandbox.sh](../scripts/deploy-sandbox.sh) | Applies the sandbox manifests separately and waits for a ready warm sandbox. `--print` shows the rendered manifests. |
 | `.env` | The real values (git-ignored). The scripts read it; [.env.example](../.env.example) explains each one. |
 
 ## Shipping a change
@@ -76,9 +77,103 @@ git push --follow-tags        # GitHub Actions builds and pushes the image
 scripts/deploy.sh             # once the Actions run is green
 ```
 
-`bump2version` raises the version in `pyproject.toml`, `uv.lock` and `k8s/kustomization.yaml`, commits "Release X.Y.Z" and tags `vX.Y.Z`. `scripts/deploy.sh` deploys exactly the version in your checkout, so to roll back, check out an older tag and run it again. Plain `kubectl apply -k k8s/` won't work, because the `${VARS}` would be left unfilled.
+`bump2version` raises the version in `pyproject.toml`, `uv.lock`, `k8s/kustomization.yaml` and `k8s/sandbox/kustomization.yaml`, commits "Release X.Y.Z" and tags `vX.Y.Z`. Both images receive that version tag. `scripts/deploy.sh` deploys exactly the app version in your checkout, so to roll back, check out an older tag and run it again. Plain `kubectl apply -k k8s/` won't work, because the `${VARS}` would be left unfilled.
 
 To let someone else sign in, add them to `IAP_MEMBERS` in `.env` and run `scripts/setup.sh`.
+
+## Agent Sandbox: phase one
+
+The sandbox infrastructure lives separately in [k8s/sandbox/](../k8s/sandbox/).
+It is not included in `scripts/deploy.sh`. The app's code execution tools are
+phase three and are not wired up yet; phase two covers sandbox backends and local testing.
+
+The existing `agent-sandbox-controller` in `agent-sandbox-system` was verified
+healthy on November 8, 2026, running **v1.0.10**, with all four CRDs installed.
+The cluster already had `secure-sandbox-policy` and `secure-sandbox-binding`;
+this deployment leaves them untouched. Neither the sandbox manifests nor the
+deployment script installs or updates an admission policy or binding. See
+[Google's installation guide](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/how-install-agent-sandbox)
+for controller installation and verification.
+
+**Deployment status (November 8, 2026):** the sandbox image was built and pushed,
+and all phase-one manifests were applied. The warm sandbox is still Pending:
+Compute Engine audit logs confirm `SSD_TOTAL_GB` quota exhaustion in `us-east4`
+(200 GB used of a 250 GB limit), preventing Autopilot from creating the gVisor
+node's disk. Increase the regional SSD quota or free existing quota before
+expecting the warm pool to become ready. The desired pool size remains one;
+Autopilot will retry provisioning. This is node disk quota, separate from the
+sandbox's 2 GiB ephemeral-storage limit.
+
+Validation passed for rendered manifests, server-side admission of both the
+Sandbox and its Pod, the app's allowed/denied RBAC operations, and a local image
+smoke test with a read-only root, UID 1000 and no network. The smoke test covered
+library imports, chart and spreadsheet generation, shell execution, command
+timeout, download and file listing. Cluster runtime/connectivity checks remain
+pending until the node can be provisioned.
+
+| Resource | Configuration |
+| --- | --- |
+| Namespace | `argo-sandbox`, Pod Security `restricted` |
+| Template / warm pool | Both named `argo-python`; one warm sandbox |
+| Runtime image | `us-east4-docker.pkg.dev/aseems-cloud/argo/sandbox:0.1.1` |
+| Runtime | Python 3.14, upstream v1.0.10 HTTP API on port 8888, source SHA-256 verified at build time |
+| Isolation | gVisor, UID/GID 1000, read-only root, no service account token, all capabilities dropped |
+| Resources per sandbox | Requests = limits: 500m CPU, 1 GiB memory, 2 GiB ephemeral storage |
+| Writable storage | `/workspace` (1 GiB emptyDir, includes `output/`) and `/tmp` (512 MiB emptyDir); deleted with the pod |
+| Network | Only `app: argo` pods in namespace `argo` can initiate connections to TCP 8888. No egress, including DNS, internet, metadata and private services |
+| App permissions | `argo/argo` can create/get/list/watch/patch/delete claims and get/list/watch sandboxes in `argo-sandbox` only |
+
+Network rules are explicitly set in the template because the controller's
+default allows public internet egress. A namespace-wide deny-all NetworkPolicy
+also covers pods without the template's labels. The Python client's in-cluster
+connection mode can connect directly to the sandbox, so no Sandbox Router is
+deployed. Sandbox pods use the namespace's unannotated default service account,
+with token automount disabled; they do not use the app's Google identity.
+
+Builds use [sandbox/Dockerfile](../sandbox/Dockerfile) with its own `sandbox/`
+context. The release workflow builds both images; `scripts/build-push.sh` is
+the manual alternative. To build only the sandbox from a local checkout:
+
+```sh
+gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
+docker buildx build --platform linux/amd64 \
+  --tag us-east4-docker.pkg.dev/aseems-cloud/argo/sandbox:0.1.1 --push sandbox/
+```
+
+Review and apply the manifests separately after the image is available:
+
+```sh
+scripts/deploy-sandbox.sh --print
+scripts/deploy-sandbox.sh
+kubectl get sandboxtemplate,sandboxwarmpool,sandbox,pod,networkpolicy -n argo-sandbox
+```
+
+The script selects the `argo` cluster in the `.env` project/region and waits for
+one ready warm sandbox. Autopilot may take several minutes to provision a gVisor
+node. The first sandbox image can be built manually before the next tagged
+release; later releases use the normal workflow.
+
+To update the dependency lock (hashes are enforced by the image build):
+
+```sh
+uv pip compile sandbox/requirements.in --python-version 3.14 \
+  --python-platform x86_64-unknown-linux-gnu --only-binary :all: \
+  --generate-hashes --output-file sandbox/requirements.txt
+```
+
+Updating the upstream runtime also requires updating its pinned URL and SHA-256
+in the Dockerfile. Template changes affect newly created sandboxes; the default
+warm-pool update strategy is `OnReplenish`, so existing warm or claimed pods keep
+their old image until replaced. Deleting a sandbox also deletes its workspace.
+Scaling the warm pool to zero saves idle capacity while retaining the pool for
+future claims:
+
+```sh
+kubectl scale sandboxwarmpool/argo-python -n argo-sandbox --replicas=0
+```
+
+Reapplying the manifests restores one warm sandbox. Each active claim adds its
+own sandbox beyond the pool's ready capacity.
 
 ## When something is wrong
 

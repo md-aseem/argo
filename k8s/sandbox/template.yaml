@@ -1,0 +1,97 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: argo-python
+  namespace: argo-sandbox
+spec:
+  envVarsInjectionPolicy: Disallowed
+  networkPolicyManagement: Managed
+  # Override upstream defaults, which allow public internet egress.
+  networkPolicy:
+    ingress:
+      - from:
+          # Both selectors must match the same source pod.
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: argo
+            podSelector:
+              matchLabels:
+                app: argo
+        ports:
+          - protocol: TCP
+            port: 8888
+    egress: []
+  podTemplate:
+    metadata:
+      labels:
+        app: argo-sandbox
+    spec:
+      runtimeClassName: gvisor
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        sandbox.gke.io/runtime: gvisor
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: sandbox.gke.io/runtime
+          operator: Equal
+          value: gvisor
+          effect: NoSchedule
+      containers:
+        - name: runtime
+          image: argo-sandbox
+          ports:
+            - name: http
+              containerPort: 8888
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 2Gi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+              ephemeral-storage: 2Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 2
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
+      restartPolicy: OnFailure

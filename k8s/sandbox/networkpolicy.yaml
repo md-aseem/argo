@@ -1,0 +1,14 @@
+# Backstop for every pod, including pods without a template-managed policy.
+# NetworkPolicies are additive: the template adds only the app's ingress rule.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: argo-sandbox
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []

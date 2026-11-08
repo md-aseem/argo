@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Manual alternative to the GitHub Actions build: build the image from this
-# checkout and push it to Artifact Registry, tagged with the pyproject.toml
+# Manual alternative to the GitHub Actions build: build both images from this
+# checkout and push them to Artifact Registry, tagged with the pyproject.toml
 # version. The normal path is the workflow in .github/workflows/build-image.yml.
 #
 #   scripts/build-push.sh       # reads GOOGLE_CLOUD_PROJECT and REGION from .env
@@ -16,3 +16,8 @@ gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
 docker buildx build --platform linux/amd64 --tag "$IMAGE:$version" --push .
 
 echo "Pushed $IMAGE:$version"
+
+sandbox_image="$REGION-docker.pkg.dev/$PROJECT_ID/argo/sandbox"
+docker buildx build --platform linux/amd64 --tag "$sandbox_image:$version" --push sandbox/
+
+echo "Pushed $sandbox_image:$version"

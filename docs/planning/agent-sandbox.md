@@ -138,22 +138,28 @@ Make the execution environment usable and testable independently of the ADK tool
 Build the Docker backend first so development can continue without GKE capacity
 or quota approval. This phase defines infrastructure and internal integration;
 tool names, arguments, model-facing results, and artifact behaviour belong to
-Phase 3. The modes and supporting files below are planned, not implemented yet.
+Phase 3. The environment configuration and supporting files below are planned,
+not implemented yet.
 
-### Backend selection
+### Environment-based backend selection
 
-Introduce `SANDBOX_MODE` with three explicit modes:
+Choose the backend automatically from the application's environment. Use one
+app-level setting, `ARGO_ENV`, with `local` as the development default and
+`production` explicitly configured in the production deployment. There is no
+separate sandbox mode, backend override, or off setting.
 
-| Mode | Execution environment | Use |
+| Application environment | Automatically selected backend | Use |
 | --- | --- | --- |
-| `docker` | Separate local Docker containers | Everyday development and local integration tests; no Kubernetes cluster, kubeconfig, or Google credentials needed for sandbox execution |
-| `gke` | Agent Sandbox resources on GKE | Production and cluster integration tests; use the Phase 1 template, warm pool, and namespace |
-| `off` | Execution disabled | Run Argo without a sandbox dependency; never fall back to running code in the Argo process or on the host |
+| `local` | Separate local Docker containers | Everyday development and local integration tests; no Kubernetes cluster, kubeconfig, or Google credentials needed for sandbox execution |
+| `production` | Agent Sandbox resources on GKE | Production and cluster integration tests; use the Phase 1 template, warm pool, and namespace |
 
-Default to `off` for an unconfigured local run; developers explicitly opt into
-`docker`, and production explicitly selects `gke`. Starting the full Argo app
-still requires its existing Vertex AI and artifact-storage configuration. The
-standalone Docker runtime tests must not require that app configuration.
+Sandbox execution is available in both environments. If Docker is unavailable
+locally or GKE sandbox provisioning fails in production, report an actionable
+error; do not silently disable execution, switch backends, or run code in the
+Argo process or on the host. Reject unrecognized application environment values.
+Starting the full Argo app still requires its existing Vertex AI and
+artifact-storage configuration. The standalone Docker runtime tests must not
+require that app configuration.
 
 ### Shared runtime and internal interface
 
@@ -181,7 +187,7 @@ to exercise the tools through the chat UI.
 
 | Test level | What it verifies | Infrastructure |
 | --- | --- | --- |
-| Unit | Backend selection, conversation reuse/separation, resource ownership, expiry, and cleanup/error paths | Fake runtime responses and mocked Docker/Kubernetes clients |
+| Unit | Environment-based backend selection, conversation reuse/separation, resource ownership, expiry, and cleanup/error paths | Fake runtime responses and mocked Docker/Kubernetes clients |
 | Local integration | Real runtime HTTP execution, shell commands, timeouts, uploads/downloads, chart and spreadsheet generation, plus Docker create/reconnect/delete behaviour | Docker and the sandbox image; no cloud resources |
 | GKE integration | Claims, warm-pool allocation, readiness, app RBAC/connectivity, and the deployed runtime API | A ready GKE sandbox; run when quota is available |
 
@@ -193,6 +199,7 @@ a Kubernetes cluster and router, so it is not the cluster-free Docker workflow.
 ### Acceptance criteria
 
 - A developer can build the image and pass standalone runtime and backend integration tests using Docker alone, without GKE quota or credentials.
+- The local environment automatically uses Docker and production automatically uses GKE, without a separate sandbox setting or off option. Tests verify environment selection and clear errors for missing dependencies or invalid configuration, with no automatic fallback.
 - Repeated requests for one conversation reuse its container; another conversation gets a separate workspace. Reconnecting and deleting work, and expiry/startup-failure tests leave no owned resources behind.
 - The sandbox receives no app/cloud credentials or host mounts, the root filesystem is read-only, and the selected Docker network blocks internet egress.
 - Docker and GKE target the same runtime API and image version. Backend lifecycle tests pass locally; live GKE checks are recorded separately if quota still blocks provisioning.
@@ -227,7 +234,7 @@ discussion; Phase 2 does not settle or expand its behaviour.
 ### Wiring
 
 - Register the tools in `agent.py`, and describe when to use them in `instruction.md`.
-- **Local dev:** use the Docker backend from Phase 2 for local execution, `gke` for cluster integration, or `SANDBOX_MODE=off` to disable the tools.
+- **Environment:** use the backend selected automatically in Phase 2: Docker locally and GKE in production. The tools do not expose a separate backend selector or off option.
 
 ---
 

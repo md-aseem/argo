@@ -1,0 +1,9 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: argo-python
+  namespace: argo-sandbox
+spec:
+  replicas: 1
+  sandboxTemplateRef:
+    name: argo-python

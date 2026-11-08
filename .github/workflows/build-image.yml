@@ -1,4 +1,4 @@
-# Builds the Docker image and pushes it to Google Artifact Registry whenever a
+# Builds the app and sandbox images and pushes them to Artifact Registry whenever a
 # version tag (vX.Y.Z) is pushed. Cut a release with:
 #
 #   uvx bump2version patch      # or minor / major; commits and tags vX.Y.Z
@@ -9,7 +9,7 @@
 # Variables); none of them are secrets:
 #   GCP_PROJECT_ID, GCP_REGION,
 #   GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT
-name: Build and push image
+name: Build and push images
 
 on:
   push:
@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/argo/argo
+      SANDBOX_IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/argo/sandbox
     steps:
       - uses: actions/checkout@v4
 
@@ -55,11 +56,22 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/build-push-action@v6
+      - name: Build and push app
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64 # GKE nodes are amd64
           push: true
           tags: ${{ env.IMAGE }}:${{ env.VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=argo
+          cache-to: type=gha,scope=argo,mode=max
+
+      - name: Build and push sandbox
+        uses: docker/build-push-action@v6
+        with:
+          context: ./sandbox
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.SANDBOX_IMAGE }}:${{ env.VERSION }}
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,scope=sandbox,mode=max

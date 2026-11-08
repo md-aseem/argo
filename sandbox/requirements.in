@@ -1,0 +1,11 @@
+# Runtime API used by the upstream Agent Sandbox Python client.
+fastapi
+uvicorn
+python-multipart
+
+# Tools available to code running in the sandbox (no network installs at runtime).
+pandas
+numpy
+matplotlib
+pillow
+openpyxl

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from google.adk.agents.llm_agent import Agent
 from google.adk.skills import load_skills_from_dir
-from google.adk.tools.skill_toolset import SkillToolset
+from google.adk.tools.skill_toolset import SkillDiscoveryMode, SkillToolset
 
 from .tools.artifacts import artifact_tools
 
@@ -13,6 +13,7 @@ INSTRUCTION = (AGENT_DIR / "instruction.md").read_text(encoding="utf-8").strip()
 
 skill_toolset = SkillToolset(
     skills=load_skills_from_dir(AGENT_DIR / "skills"),
+    discovery_mode=SkillDiscoveryMode.EAGER,
 )
 
 root_agent = Agent(

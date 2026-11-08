@@ -13,8 +13,8 @@ from fastapi import HTTPException
 from google.genai import types
 from pydantic import BaseModel
 
-# Gemini accepts these directly; any other upload must be readable as UTF-8
-# text, which is then sent inline as a text part.
+# Gemini accepts these directly. Other uploads are sent as UTF-8 text when
+# readable, or referenced by filename while their bytes stay in artifacts.
 INLINE_MIME_PREFIXES = ("image/", "audio/", "video/")
 INLINE_MIME_TYPES = {"application/pdf"}
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # Vertex caps a request at ~20 MB
@@ -60,6 +60,7 @@ def process_attachments(
         try:
             body_text = raw.decode("utf-8")
         except UnicodeDecodeError:
-            raise HTTPException(415, f"{name}: unsupported file type") from None
-        parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}\n\n{body_text}"))
+            parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}"))
+        else:
+            parts.append(types.Part(text=f"{ATTACHED_PREFIX}{name}\n\n{body_text}"))
     return parts, uploads

@@ -1,9 +1,9 @@
 # Argo
 
-Argo is Aseem's personal AI agent: a Google ADK agent (`src/argo/agent.py`) with a chat UI.
+Argo is a personal AI agent: a Google ADK agent (`src/argo/agent.py`) with a chat UI. Each signed-in person has their own conversations and files.
 
 ```
-src/argo/   the agent (agent.py), API routes (routes.py), and entry point (main.py)
+src/argo/   the agent (agent.py), API routes (routes.py), sign-in (auth.py), and entry point (main.py)
 frontend/   the chat UI: Vite + React + TypeScript
 ```
 
@@ -91,7 +91,7 @@ Open http://localhost:8000/argo/. To stop the container, press Ctrl+C.
 
 ## Production
 
-Argo is live at https://muhammadaseem.com/argo/, on GKE behind a Google login, with conversations in Cloud SQL (Postgres). To ship a change:
+Argo is live at https://muhammadaseem.com/argo/, on GKE behind a Google login (IAP), with conversations in Cloud SQL (Postgres). Only the accounts in `IAP_MEMBERS` can sign in, and each sees only their own chats and files. To ship a change:
 
 ```sh
 uvx bump2version patch     # or minor / major; bumps the version, commits, tags
@@ -103,7 +103,8 @@ How it's put together, what's running where, and what to check when something br
 
 ## How it fits together
 
-- **Conversations** are stored in Postgres when `DATABASE_URL` is set (production), otherwise in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The New chat button in the sidebar starts a new chat.
+- **Users**: in production (`ARGO_AUTH=iap`, set in [k8s/configmap.yaml](k8s/configmap.yaml)) the API verifies the signed JWT that IAP adds to every request and uses the signed-in Google email as the user id; requests without a valid token get `401`. Locally there is no sign-in, and every request is `LOCAL_USER_ID` (default `aseem`). See [src/argo/auth.py](src/argo/auth.py).
+- **Conversations** belong to the user who started them and are stored in Postgres when `DATABASE_URL` is set (production), otherwise in `src/.adk/argo.db` (git-ignored). The open one is in the URL as `?s=<id>`, so a reload keeps it. The New chat button in the sidebar starts a new chat.
 - **Replies stream** over server-sent events from `POST /argo/api/chat`. The API turns ADK events into `text`, `tool`, `tool_result`, `artifact`, `error` and `done`; the UI renders them as they arrive.
 - **Tools**: any tool you add to the agent shows up in the reply header (`read_file · write_file ›`, click to expand) and in the status line while it runs.
 - **Files Argo saves** (ADK artifacts, via `tool_context.save_artifact`) appear as rows under the reply with a VIEW link. They are stored in the GCS bucket named by `GOOGLE_CLOUD_BUCKET` (see below).
@@ -115,7 +116,10 @@ How it's put together, what's running where, and what to check when something br
 | Route | |
 | --- | --- |
 | `POST /argo/api/chat` | `{session_id?, text, attachments[]}` → SSE stream. Omit `session_id` to start a conversation. |
-| `GET /argo/api/sessions` | All conversations, newest first. |
+| `GET /argo/api/sessions` | The current user's conversations, newest first. |
 | `GET /argo/api/sessions/{id}` | One conversation with its messages. |
+| `DELETE /argo/api/sessions/{id}` | Delete a conversation. |
 | `GET /argo/api/sessions/{id}/artifacts/{name}` | A file the agent saved. |
 | `GET /argo/api/health` | Health check (used by Kubernetes). |
+
+Every route except `health` acts as the current user (see **Users** above), so a conversation or file that belongs to someone else returns `404`.

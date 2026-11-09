@@ -1,0 +1,18 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: argo-python
+  namespace: argo-sandbox
+spec:
+  networkPolicy:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: argo-sandbox-router
+            podSelector:
+              matchLabels:
+                app: sandbox-router
+        ports:
+          - protocol: TCP
+            port: 8888

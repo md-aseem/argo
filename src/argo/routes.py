@@ -36,6 +36,7 @@ from .agent import root_agent  # noqa: E402
 from .artifacts import ArtifactStore  # noqa: E402
 from .attachments import AttachmentIn, attached_name, process_attachments  # noqa: E402
 from .auth import current_user  # noqa: E402
+from .tools.sandbox import sandboxes  # noqa: E402
 
 log = logging.getLogger("argo")
 
@@ -332,6 +333,7 @@ async def get_session(session_id: str, user: str = Depends(current_user)) -> dic
 
 @router.delete("/api/sessions/{session_id}", status_code=204)
 async def delete_session(session_id: str, user: str = Depends(current_user)) -> Response:
+    await sandboxes.release(APP_NAME, user, session_id)
     await sessions.delete_session(app_name=APP_NAME, user_id=user, session_id=session_id)
     return Response(status_code=204)
 

@@ -8,25 +8,14 @@ spec:
   networkPolicyManagement: Managed
   # Override upstream defaults, which allow public internet egress.
   networkPolicy:
-    ingress:
-      - from:
-          # Both selectors must match the same source pod.
-          - namespaceSelector:
-              matchLabels:
-                kubernetes.io/metadata.name: argo
-            podSelector:
-              matchLabels:
-                app: argo
-        ports:
-          - protocol: TCP
-            port: 8888
+    ingress: [] # Each overlay names the only allowed client.
     egress: []
   podTemplate:
     metadata:
       labels:
         app: argo-sandbox
     spec:
-      runtimeClassName: gvisor
+      # gVisor is set in the GKE overlay; local kind uses the default runtime.
       automountServiceAccountToken: false
       enableServiceLinks: false
       securityContext:
@@ -36,17 +25,10 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
-      nodeSelector:
-        sandbox.gke.io/runtime: gvisor
-        kubernetes.io/arch: amd64
-      tolerations:
-        - key: sandbox.gke.io/runtime
-          operator: Equal
-          value: gvisor
-          effect: NoSchedule
       containers:
         - name: runtime
           image: argo-sandbox
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8888

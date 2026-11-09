@@ -2,7 +2,7 @@
 
 Argo is live at **https://muhammadaseem.com/argo/**. It runs on Google Kubernetes Engine (GKE), behind a Google login, with conversations in Cloud SQL (PostgreSQL) and files in a GCS bucket.
 
-This page describes what is running and how it fits together.
+This page records deployed infrastructure, implemented changes awaiting rollout, and how the architecture fits together.
 
 ## Architecture
 
@@ -77,91 +77,202 @@ git push --follow-tags        # GitHub Actions builds and pushes the image
 scripts/deploy.sh             # once the Actions run is green
 ```
 
-`bump2version` raises the version in `pyproject.toml`, `uv.lock`, `k8s/kustomization.yaml` and `k8s/sandbox/kustomization.yaml`, commits "Release X.Y.Z" and tags `vX.Y.Z`. Both images receive that version tag. `scripts/deploy.sh` deploys exactly the app version in your checkout, so to roll back, check out an older tag and run it again. Plain `kubectl apply -k k8s/` won't work, because the `${VARS}` would be left unfilled.
+`bump2version` raises the version in `pyproject.toml`, `uv.lock`, `k8s/kustomization.yaml` and `k8s/sandbox/overlays/gke/kustomization.yaml`, commits "Release X.Y.Z" and tags `vX.Y.Z`. Both images receive that version tag. `scripts/deploy.sh` deploys exactly the app version in your checkout, so to roll back, check out an older tag and run it again. Plain `kubectl apply -k k8s/` won't work, because the `${VARS}` would be left unfilled.
 
 To let someone else sign in, add them to `IAP_MEMBERS` in `.env` and run `scripts/setup.sh`.
 
-## Agent Sandbox: phase one
+## Agent Sandbox: architecture and implementation status
 
-The sandbox infrastructure lives separately in [k8s/sandbox/](../k8s/sandbox/).
-It is not included in `scripts/deploy.sh`. The app's code execution tools are
-phase three and are not wired up yet; phase two covers the sandbox service and
-a local kind cluster for developing it.
+Phases two and three are implemented in this checkout: the sandbox module,
+local Kubernetes setup, ADK's standard environment and skill tools bound to the
+calling conversation, attachment staging and saving outputs. The new app and
+sandbox images still need a release and production rollout.
 
-The [phase-two plan](planning/agent-sandbox.md#phase-2-sandbox-service-and-local-kubernetes)
-keeps this deployment's direct in-cluster connection: on GKE the app connects to
-sandbox pods on port 8888, so no Sandbox Router or Gateway is deployed. Locally,
-a router reached through one port-forward stands in for the cluster network.
-Phase two also splits these manifests into a shared base with local and GKE
-overlays; the configuration below describes the existing phase-one deployment.
-
-The existing `agent-sandbox-controller` in `agent-sandbox-system` was verified
-healthy on November 8, 2026, running **v1.0.10**, with all four CRDs installed.
-The cluster already had `secure-sandbox-policy` and `secure-sandbox-binding`;
-this deployment leaves them untouched. Neither the sandbox manifests nor the
-deployment script installs or updates an admission policy or binding. See
-[Google's installation guide](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/how-install-agent-sandbox)
-for controller installation and verification.
-
-**Deployment status (November 8, 2026):** the sandbox image was built and pushed,
-and all phase-one manifests were applied. The warm sandbox is still Pending:
-Compute Engine audit logs confirm `SSD_TOTAL_GB` quota exhaustion in `us-east4`
-(200 GB used of a 250 GB limit), preventing Autopilot from creating the gVisor
-node's disk. Increase the regional SSD quota or free existing quota before
-expecting the warm pool to become ready. The desired pool size remains one;
-Autopilot will retry provisioning. This is node disk quota, separate from the
-sandbox's 2 GiB ephemeral-storage limit.
-
-Validation passed for rendered manifests, server-side admission of both the
-Sandbox and its Pod, the app's allowed/denied RBAC operations, and a local image
-smoke test with a read-only root, UID 1000 and no network. The smoke test covered
-library imports, chart and spreadsheet generation, shell execution, command
-timeout, download and file listing. Cluster runtime/connectivity checks remain
-pending until the node can be provisioned.
-
-| Resource | Configuration |
+| Phase / environment | Status as of November 8, 2026 |
 | --- | --- |
-| Namespace | `argo-sandbox`, Pod Security `restricted` |
-| Template / warm pool | Both named `argo-python`; one warm sandbox |
-| Runtime image | `us-east4-docker.pkg.dev/aseems-cloud/argo/sandbox:0.1.1` |
-| Runtime | Python 3.14, upstream v1.0.10 HTTP API on port 8888, source SHA-256 verified at build time |
-| Isolation | gVisor, UID/GID 1000, read-only root, no service account token, all capabilities dropped |
-| Resources per sandbox | Requests = limits: 500m CPU, 1 GiB memory, 2 GiB ephemeral storage |
-| Writable storage | `/workspace` (1 GiB emptyDir, includes `output/`) and `/tmp` (512 MiB emptyDir); deleted with the pod |
-| Network | Only `app: argo` pods in namespace `argo` can initiate connections to TCP 8888. No egress, including DNS, internet, metadata and private services |
-| App permissions | `argo/argo` can create/get/list/watch/patch/delete claims and get/list/watch sandboxes in `argo-sandbox` only |
+| Phase 0: controller, extensions and admission policy | Deployed on GKE, controller v1.0.10 |
+| Phase 1: image, template, warm pool, network rules and RBAC | Deployed; GKE pool observed Ready 1/1 and runtime kernel confirmed as `4.19.0-gvisor` |
+| Phases 2 and 3: sandbox module, local cluster and ADK tools | Implemented, then [simplified](planning/agent-sandbox.md#why-agent-sandbox); all 10 unit and kind integration tests pass on arm64 Docker Desktop with Kubernetes v1.35.0 |
+| New-code GKE chat tests | Pending an app release and rollout; the deployed sandbox image already works with it |
+| Phase 4: additional hardening and UI | Remains separate work in the [plan](planning/agent-sandbox.md#phase-4-hardening-and-ui) |
 
-Network rules are explicitly set in the template because the controller's
-default allows public internet egress. A namespace-wide deny-all NetworkPolicy
-also covers pods without the template's labels. The Python client's in-cluster
-connection mode can connect directly to the sandbox, so no Sandbox Router is
-deployed. Sandbox pods use the namespace's unannotated default service account,
-with token automount disabled; they do not use the app's Google identity.
+Earlier on November 8, Autopilot could not create the sandbox node because of
+regional `SSD_TOTAL_GB` quota exhaustion (200 GB used of 250 GB). A later read
+confirmed that the node and warm sandbox are now running. That quota issue is no
+longer blocking the observed deployment; the exact quota/provisioning change was
+not made by this implementation. This does not establish that the new service or
+chat integration has been deployed.
 
-Builds use [sandbox/Dockerfile](../sandbox/Dockerfile) with its own `sandbox/`
-context. The release workflow builds both images; `scripts/build-push.sh` is
-the manual alternative. To build only the sandbox from a local checkout:
+A read-only health request from the existing `argo` app pod to the sandbox's
+pod IP on port 8888 also succeeded. This verifies the current direct network
+path; the new SDK-backed service and chat flow still need their rollout tests.
 
-```sh
-gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
-docker buildx build --platform linux/amd64 \
-  --tag us-east4-docker.pkg.dev/aseems-cloud/argo/sandbox:0.1.1 --push sandbox/
+
+### Connections and ownership
+
+```text
+Authenticated chat -> ADK Runner -> root_agent
+  before_tool_callback (bind_sandbox): the call's ToolContext -> trusted app + user + session
+  |-- ADK EnvironmentToolset: Execute / ReadFile / EditFile / WriteFile
+  |-- ADK SkillToolset: skill scripts
+  |-- stage_artifact: artifact service -> /workspace/inputs
+  |-- save_output: sandbox file -> artifact service -> GCS -> chat downloads
+  v
+one shared SandboxEnvironment -> AsyncSandboxClient
+  | lifecycle: Kubernetes API             | execution/files: HTTP :8888
+  v                                       v
+deterministic SandboxClaim -> allocated sandbox pod
+
+GKE:   argo pod --------------------- pod IP :8888 ----------------> sandbox (gVisor)
+Local: Argo on Mac -> 127.0.0.1:18080 -> kubectl port-forward -> router -> sandbox
 ```
 
-Review and apply the manifests separately after the image is available:
+Inside a pod (`KUBERNETES_SERVICE_HOST` is set), the app uses in-cluster
+credentials and `SandboxInClusterConnectionConfig`. GKE has no router, Gateway
+or external sandbox endpoint. Anywhere else, it loads only the `kind-argo-dev`
+context by name, never the current context, and refuses it unless its API
+server is loopback. The SDK then reaches sandboxes through the router at
+`http://127.0.0.1:18080`. A missing local context stops app startup; a closed
+tunnel produces a tool error. There is no host execution fallback.
+
+The local cluster has a control-plane node and a separate worker. This is
+required for API isolation: NetworkPolicy permits traffic to a pod's own node,
+so a single-node cluster allowed sandbox traffic to its API server in testing.
+The control-plane taint keeps sandbox workloads on the worker. Local sandboxes
+use the default container runtime. gVisor, its node selector and toleration, and
+the admission policy that requires them apply on GKE only.
+
+### Source layout
+
+| Path | Responsibility |
+| --- | --- |
+| [src/argo/tools/sandbox.py](../src/argo/tools/sandbox.py) | Credentials, the shared `SandboxEnvironment`, claim naming and deadlines, the tool callbacks, `stage_artifact` and `save_output` |
+| [src/argo/agent.py](../src/argo/agent.py) | Gives the environment to both stock toolsets and registers the callbacks |
+| [src/argo/main.py](../src/argo/main.py) | FastAPI lifespan opens and closes the sandbox client |
+| [src/argo/routes.py](../src/argo/routes.py) | Deleting a conversation also deletes its sandbox |
+| [k8s/sandbox/base/](../k8s/sandbox/base/) | Shared isolation, resource/storage limits, warm pool, template and client RBAC |
+| [k8s/sandbox/overlays/gke/](../k8s/sandbox/overlays/gke/) | Registry version, gVisor and amd64 scheduling and app-only ingress |
+| [k8s/sandbox/overlays/local/](../k8s/sandbox/overlays/local/) | Dev image, router-only ingress, router resources and two-node kind configuration |
+| [scripts/local-sandbox.sh](../scripts/local-sandbox.sh) | `up`, loopback-only restarting `tunnel`, and `down`; every cluster operation names `kind-argo-dev` |
+
+The app locks `k8s-agent-sandbox[async]==1.0.10` alongside controller/runtime
+v1.0.10, and `uv.lock` selects ADK 2.14.0 (project minimum `>=2.14.0`). ADK owns
+the standard tool declarations and instructions; Argo registers its toolsets
+unchanged. Upgrade these interfaces together and rerun both unit and kind
+integration suites.
+
+### Identity, persistence and lifecycle
+
+A claim is `argo-` plus the first 20 SHA-256 hex digits of a JSON-encoded trusted
+`[app_name, user_id, session_id]` from the tool call's session. No model
+argument selects the claim or user. A tool call's first sandbox operation runs
+`create_sandbox(adopt_existing=True)`, which creates the claim from the
+`argo-python` warm pool or reattaches to it by name. Parallel first calls
+converge on one claim. No app environment variables are injected into it.
+
+Adoption doesn't extend a claim's deadline, so each tool call also patches
+`spec.lifecycle.shutdownTime` to now plus 30 minutes, with
+`shutdownPolicy: Delete`. The controller deletes a claim and its workspace
+after 30 minutes without a tool call. The patch returns the claim's UID, kept in
+session state as `argo_sandbox_uid`. A different UID means the workspace was
+replaced, and the tool result gets a `workspace_reset` notice. Attachments can
+then be staged again; skill scripts copy their files back in when missing.
+Deleting a conversation deletes its claim.
+
+Tool calls in one conversation are not serialized, as with ADK's own local
+environment. Claims live in Kubernetes, so app replicas are interchangeable.
+
+### Runtime, storage and limits
+
+| Setting | Value / behavior |
+| --- | --- |
+| Namespace / template / warm pool | `argo-sandbox` / `argo-python` / `argo-python`; one warm sandbox |
+| Runtime | Python 3.14, upstream v1.0.10 HTTP runtime on port 8888, source SHA-256 checked at build time |
+| Isolation | gVisor on GKE (default runtime locally), UID/GID 1000, read-only root, token automount off, all capabilities dropped, restricted Pod Security |
+| Resources per sandbox | Requests = limits: 500m CPU, 1 GiB memory, 2 GiB ephemeral storage; same locally and on GKE |
+| Writable storage | `/workspace`: 1 GiB emptyDir; `/tmp`: 512 MiB emptyDir; both deleted with the sandbox |
+| Network | GKE ingress only from `argo/app: argo`; local ingress only from router pods; TCP 8888. Sandbox egress denied, including DNS |
+| Router | Local only, `sandbox-router-go:v1.0.10`, cache off, allow-all authz behind loopback port-forward; no API token or RBAC; egress only sandbox TCP 8888 and cluster DNS |
+| Readiness | 120-second SDK readiness bound |
+| Command time | Standard Execute: 30 seconds; skill scripts: 60 seconds, the runtime's own limit. On timeout the runtime kills the command's whole process group and returns its output so far |
+| Process behavior | `bash -c`, through the runtime's `/bin/sh -c`, in `/workspace`; files persist, shell/Python variables and `cd` do not; a background job that keeps output open holds the call until the timeout |
+| Captured output | Not capped: the runtime returns all of stdout and stderr, and the app holds them in memory. ADK's tools show the model at most 16,000 characters and say when they truncate. Output in the hundreds of MB could exhaust the app pod's 1 GiB (larger output kills the sandbox runtime first, a tool error). Output that isn't UTF-8 makes the command fail with a decoding error |
+| File transfers | 15 MiB per download, enforced by the SDK during transfer |
+
+File tools accept relative paths or `/workspace/...`, strip that prefix and
+reject other absolute paths and `..`. They never resolve paths on the host.
+`stage_artifact` loads only the current ADK user's/session's artifact and
+preserves binary bytes under `/workspace/inputs/`. The sandbox receives no GCS
+credentials or app service-account identity.
+
+`save_output(path)` reads one sandbox file and saves it as an artifact named
+after the file; saving the same name again adds a version, and the existing SSE
+artifact events and downloads apply. Saved GCS artifacts are independent of the
+disposable workspace. A failing tool call, including an infrastructure failure,
+returns `{"status": "error"}` to the model instead of ending the turn. A command
+whose outcome is unknown is never replayed automatically.
+
+### Local operation and verification
+
+Install Docker Desktop, kind (at least 0.31.0) and kubectl.
+No cloud credentials are needed for these sandbox tests. The full chat app still
+needs its normal Vertex AI and GCS settings.
+
+```sh
+scripts/local-sandbox.sh up
+scripts/local-sandbox.sh tunnel        # keep in a separate terminal
+.venv/bin/python -m unittest discover -s tests -v
+ARGO_SANDBOX_INTEGRATION=1 .venv/bin/python -m unittest tests/test_local_sandbox.py -v
+```
+
+The unit tests run a real ADK Runner with scripted model responses against a
+fake cluster. They check that parallel calls in one model response reach their
+own conversation's sandbox, plus staging, skill scripts, saving outputs, reset
+notices and release. The kind tests cover real Bash and Python, file
+persistence, timeouts with partial output, the download limit, parallel first
+calls, reattaching after a client restart, controller expiry and deadline extension, and isolation
+from the internet, TCP and UDP DNS, the API server, metadata and other
+sandboxes. One of them drives the real HTTP/SSE chat API: staging, the four file
+tools, a skill that makes a chart and a spreadsheet, saving both, an app
+restart, and deleting the conversation. Sessions and artifacts are in memory, so
+no model or GCS requests are made.
+
+All 10 tests passed on November 8, 2026. The kind tests ran on the existing
+`argo-dev` cluster after it was updated in place to the new template and image
+(admission policy removed, warm sandbox recreated). `local-sandbox.sh up` was
+not rerun from scratch after its gVisor steps were removed.
+
+`down` deletes only the development cluster and its disposable workspaces. Image
+and template changes affect new sandboxes. For a clean local runtime rebuild,
+run `down` then `up`; existing workspaces otherwise retain their runtime.
+
+### First production rollout of phases two and three
+
+The sandbox image is unchanged from 0.1.1, and the rendered GKE overlay
+differs from the deployed manifests only by `imagePullPolicy: IfNotPresent` and,
+after a version bump, the image tag. The new app works with the warm sandbox
+already running, so no sandbox needs replacing. To keep the cluster in step with
+the repo, apply the overlay once the bumped images are built:
 
 ```sh
 scripts/deploy-sandbox.sh --print
 scripts/deploy-sandbox.sh
-kubectl get sandboxtemplate,sandboxwarmpool,sandbox,pod,networkpolicy -n argo-sandbox
 ```
 
-The script selects the `argo` cluster in the `.env` project/region and waits for
-one ready warm sandbox. Autopilot may take several minutes to provision a gVisor
-node. The first sandbox image can be built manually before the next tagged
-release; later releases use the normal workflow.
+The warm pool uses `OnReplenish`, so this affects only sandboxes created
+afterwards. Never delete claimed sandboxes for an upgrade; that deletes their
+workspaces.
 
-To update the dependency lock (hashes are enforced by the image build):
+Then run `scripts/deploy.sh`. After rollout, verify chat execution, staged
+input, a chart or spreadsheet saved with `save_output`, reconnect and
+conversation deletion through IAP. Record those results here; local success and
+the existing GKE kernel check do not establish new-code production
+connectivity. Recheck production egress denial to the API, metadata, Cloud SQL,
+DNS, internet and another sandbox. These rollout-specific checks are pending.
+Infrastructure is still deployed separately from the app, and the
+controller/admission policies are not changed by `scripts/deploy-sandbox.sh`.
+
+To refresh image dependencies (hashes are enforced at build time):
 
 ```sh
 uv pip compile sandbox/requirements.in --python-version 3.14 \
@@ -169,33 +280,18 @@ uv pip compile sandbox/requirements.in --python-version 3.14 \
   --generate-hashes --output-file sandbox/requirements.txt
 ```
 
-Updating the upstream runtime also requires updating its pinned URL and SHA-256
-in the Dockerfile. Template changes affect newly created sandboxes; the default
-warm-pool update strategy is `OnReplenish`, so existing warm or claimed pods keep
-their old image until replaced. Deleting a sandbox also deletes its workspace.
-Scaling the warm pool to zero saves idle capacity while retaining the pool for
-future claims:
+Updating the upstream runtime requires changing its pinned URL and checksum in
+`sandbox/Dockerfile`. To reduce idle cost, scale the warm pool to zero (the pool
+must still exist for claims); reapplying the overlay restores one warm sandbox:
 
 ```sh
 kubectl scale sandboxwarmpool/argo-python -n argo-sandbox --replicas=0
 ```
 
-Reapplying the manifests restores one warm sandbox. Each active claim adds its
-own sandbox beyond the pool's ready capacity.
-
-To check the sandbox's pod, node readiness, and runtime HTTP health, or open a
-shell inside its runtime container using your existing `kubectl` credentials:
-
-```sh
-scripts/sandbox.sh --check       # health check only; exits nonzero on failure
-scripts/sandbox.sh               # check health, then open /bin/sh
-scripts/sandbox.sh -- python --version
-```
-
-The script prints and pins the current Kubernetes context. Use `--context NAME`
-to select another context without changing your kubeconfig. If several sandbox
-pods exist, choose one with `--pod NAME`; `--namespace NAME` defaults to
-`argo-sandbox`. Files you change in the shell affect that sandbox's workspace.
+For manual runtime health checks or a shell, use `scripts/sandbox.sh --check`
+or `scripts/sandbox.sh --context NAME`. The script prints and pins its context;
+`--pod NAME` chooses a sandbox when several exist. Changes in that shell affect
+only that sandbox's disposable workspace.
 
 ## When something is wrong
 
@@ -215,7 +311,7 @@ pods exist, choose one with `--pod NAME`; `--namespace NAME` defaults to
 ## Things to know
 
 - **Each person you let in has their own conversations.** The app verifies the signed JWT IAP adds to every request (`x-goog-iap-jwt-assertion`) and uses the signed-in Google email as the user id, so people in `IAP_MEMBERS` only see their own chats and files. Requests without a valid token get `401`. Everyone's chats still run on your Vertex AI bill. Optionally set `IAP_AUDIENCE` (`/projects/<PROJECT_NUMBER>/global/backendServices/<SERVICE_ID>`) in the ConfigMap so tokens IAP issued for other apps are rejected too. Locally there is no IAP, so every request is `LOCAL_USER_ID` (default `aseem`).
-- **Pods are interchangeable.** Conversations are in Cloud SQL, so updates roll out without downtime and `replicas` in `k8s/deployment.yaml` can go above 1.
+- **Conversations survive pod replacement.** They live in Cloud SQL and sandbox claims are deterministic, so a replacement app reconnects to them. Keep one serving replica while sandbox calls use process-local conversation locks; add cross-replica serialization before scaling concurrent writers.
 - **Local development is separate.** Without `DATABASE_URL` in `.env`, a local run uses a SQLite file (`src/.adk/argo.db`), so local and production chats don't mix. To point a local run at Cloud SQL, run the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy) on your machine with `--auto-iam-authn`, add yourself as an IAM database user, and set `DATABASE_URL=postgresql+asyncpg://<your email, @ as %40>@127.0.0.1:5432/argo`.
 - **Cost** (check current pricing): the pod's requests are roughly $20–30/month on Autopilot, the load balancer and static IP roughly $18–20/month, and the `db-f1-micro` Cloud SQL instance roughly $10/month. Autopilot also charges ~$73/month per cluster, which Google's free tier waives for one cluster per billing account.
 - **bump2version is no longer maintained** (its successor is `bump-my-version`). It works fine here; switching later only means renaming the config.

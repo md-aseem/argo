@@ -4,7 +4,7 @@
 
 ## Goal
 
-Give Argo a `run_code` / shell tool so it can run Python, process uploaded files, and make charts or files, **without that code running in the `argo` pod**.
+Give Argo ADK's standard environment tools for Bash execution and file operations so it can run Python, process uploaded files, and make charts or files, **without that code running in the `argo` pod**.
 
 Each conversation gets its own sandbox (gVisor in production) that cannot reach:
 
@@ -19,7 +19,7 @@ Each conversation gets its own sandbox (gVisor in production) that cannot reach:
 | [0](#phase-0-install-agent-sandbox) | Install Agent Sandbox on the cluster | ½ day |
 | [1](#phase-1-sandbox-image-and-kubernetes-resources) | Sandbox image and Kubernetes resources | 1 day |
 | [2](#phase-2-sandbox-service-and-local-kubernetes) | Sandbox service and local Kubernetes | 2–3 days |
-| [3](#phase-3-the-adk-tools) | The ADK tools (defined separately) | 1–2 days |
+| [3](#phase-3-the-adk-tools) | ADK EnvironmentToolset backed by Agent Sandbox | 3–4 days |
 | [4](#phase-4-hardening-and-ui) | Hardening and UI | 1 day |
 | [5](#phase-5-optional-pod-snapshots-then-agent-substrate) | *Optional:* Pod Snapshots, then Agent Substrate | — |
 
@@ -35,6 +35,46 @@ cluster instead of the earlier Docker-backend proposal. Production keeps phase
 one's direct in-cluster connection, so no Sandbox Router or GKE Gateway is
 deployed on GKE; the router runs only in the local cluster. Phase one describes
 the infrastructure already built.
+
+**Implementation record (November 8, 2026):** phases two and three are now
+implemented, in one module, `src/argo/tools/sandbox.py`, with manifests in
+`k8s/sandbox/base/` plus `overlays/{gke,local}/`. Local setup requires kind
+0.31.0+ and uses two nodes: a control plane and a worker, because NetworkPolicy
+permits access to a pod's own node and a single-node cluster exposed its API
+server to sandboxes. See [production.md](../production.md#agent-sandbox-architecture-and-implementation-status)
+for the architecture, limits, verification record and remaining rollout checks.
+The existing GKE warm pool is now Ready; the historical SSD quota issue no
+longer blocks that observed deployment. New-code GKE chat verification still
+requires release and rollout. Phase four remains separate work.
+
+**Simplified (November 8, 2026).** A first implementation followed phases two
+and three below closely and came to about 825 lines of Python. It was rewritten
+in about 300, relying on what ADK, the SDK and the runtime already do.
+Where the sections below disagree, this list wins:
+
+- **One environment, no per-conversation toolsets.** A single
+  `SandboxEnvironment` goes straight into the stock `EnvironmentToolset` and
+  `SkillToolset`. The agent's `before_tool_callback` puts the call's
+  `ToolContext` in a `ContextVar`. ADK awaits that callback in the tool's own
+  coroutine and runs parallel calls as separate tasks. No toolset cache, no
+  eviction, no delegating tools.
+- **No per-conversation lock.** ADK's own `LocalEnvironment` has none either.
+- **One deadline patch per tool call**, when the claim is acquired. It's a plain
+  merge patch with no UID or resourceVersion precondition and no retries. Its
+  response carries the claim UID used for reset detection.
+- **The runtime owns timeouts, and output isn't capped.** v1.0.10 already runs
+  `sh -c`, enforces the timeout, kills the process group and reports
+  `timed_out`. Commands go through it as `bash -c`, with nothing added to the
+  image. Its whole output reaches the app, which risks the app pod's memory on
+  output in the hundreds of MB; that was accepted to keep the image stock.
+- **Explicit `save_output(path)`** replaces automatic publication of
+  `/workspace/output/`, with its in-sandbox inventory and session-state hashes.
+- **No settings class or `ARGO_ENV`.** Credentials are in-cluster when
+  `KUBERNETES_SERVICE_HOST` is set, and the named `kind-argo-dev` context (whose
+  server must be loopback) otherwise. Release is the SDK's `delete_sandbox`. No
+  smoke module.
+- **No gVisor locally.** The kind cluster uses the default runtime and no
+  admission policy; gVisor and its scheduling live in the GKE overlay only.
 
 **Why not Agent Substrate (yet):** it's open source, early-stage, and not an officially supported product. It maps many idle "actors" onto fewer workers with fast suspend/resume, which only pays off with many concurrent, mostly idle sessions. Argo is a personal agent with one replica, so Substrate stays optional in Phase 5.
 
@@ -311,12 +351,12 @@ follows the image tag to the GKE overlay's `kustomization.yaml`.
 
 | Command | What it does |
 | --- | --- |
-| `up` | Create the kind cluster (kind 0.24 or later, whose default network plugin enforces NetworkPolicy); install the v1.0.10 controller and extensions; optionally install gVisor; build the sandbox image and `kind load` it; apply `overlays/local`; wait for a ready warm sandbox |
+| `up` | Create the two-node kind cluster (implementation requires kind 0.31.0+); install the v1.0.10 controller, extensions, gVisor and admission policy; build the sandbox image and `kind load` it; apply `overlays/local`; wait for a ready warm sandbox |
 | `tunnel` | Run `kubectl port-forward svc/sandbox-router-svc 18080:8080 -n argo-sandbox-router`, restarting it if it exits |
 | `down` | Delete the `argo-dev` kind cluster, and nothing else |
 
 The cluster needs Docker, kind and `kubectl`, but no Google credentials or GKE
-quota. It should fit in Docker Desktop's 7.7 GiB VM: the control plane,
+quota. It should fit in Docker Desktop's 7.7 GiB VM: the control plane, worker,
 controller, router and two or three 1 GiB sandboxes. Starting the full Argo app
 still needs its Vertex AI and GCS configuration.
 
@@ -360,75 +400,211 @@ only on GKE. Record the result here.
 
 ## Phase 3: the ADK tools
 
-*Effort: 1–2 days*
+*Effort: 3–4 days*
 
-Add thin ADK tools on top of the phase-two sandbox service. Both local chat and
-production chat use the same tools, session lifecycle, and file handling. Tools
-receive the shared service; they do not run `kubectl`, manage Kubernetes objects,
-or choose a connection mode.
+Use ADK's stable `EnvironmentToolset` with an Argo `BaseEnvironment` adapter
+backed by the phase-two sandbox service. Expose the standard `Execute`,
+`ReadFile`, `EditFile` and `WriteFile` tools, and share the conversation's
+environment with `SkillToolset` so skill scripts use the same workspace.
 
-### Tools (`src/argo/tools/sandbox.py`)
+```text
+EnvironmentToolset + SkillToolset
+                 │
+conversation-bound Argo BaseEnvironment adapter
+                 │
+shared phase-two sandbox service
+                 │
+Agent Sandbox async commands.run() / files APIs
+```
 
-| Tool | Behaviour / result |
+Both local and production chat use this integration. ADK owns the standard
+model-facing tools; Argo owns session binding, the provider adapter and artifact
+integration. Agent Sandbox continues to provide execution, isolation and claim
+lifecycle. Phase two is implemented in `src/argo/sandbox/` and supplies this
+adapter's infrastructure operations.
+
+### Decision and dependencies
+
+The November 8, 2026 review checked installed `google-adk` **2.13.0** and
+`k8s-agent-sandbox` **1.0.10**, then the ADK **2.14.0** release and source.
+`BaseEnvironment` and `EnvironmentToolset` became stable in **2.14.0**. Upgrade
+the project's ADK minimum to `>=2.14.0` and regenerate `uv.lock` during
+implementation; use public package imports. The implementation now declares and
+locks `k8s-agent-sandbox[async]==1.0.10` and ADK 2.14.0 in `uv.lock`.
+
+| Option | Fit for Argo |
 | --- | --- |
-| `run_python(code)` | Execute a Python script in the conversation workspace; return stdout, stderr, exit code, timeout status, and new/updated output files |
-| `run_shell(command)` | Execute through the runtime's shell API; return stdout, stderr, exit code, timeout status, and new/updated output files |
-| `write_file` / `read_file` | Write/read workspace-relative files through the SDK file API, with explicit encoding and size limits |
+| **EnvironmentToolset + Sandbox-backed BaseEnvironment** | **Selected.** Standard execution/file tools, a reusable provider interface and direct integration with ADK skills. Requires an Argo adapter and explicit session/lifecycle handling. |
+| One ADK function calling Sandbox `commands.run()` | Smallest implementation for strictly Bash-only access and easiest custom results. A valid simpler alternative, but leaves more tool behaviour and future skill integration to Argo. |
+| ADK `ExecuteBashTool` | Installed 2.13.0 implementation runs local processes and requires per-call confirmation. Its constructor offers no remote execution backend; the workspace only sets the working directory. |
+| ADK `GkeCodeExecutor(executor_type="sandbox")` | Python-oriented with per-execution claims. Installed 2.13.0 uses old SDK constructor arguments and methods incompatible with installed Sandbox SDK 1.0.10; still unfixed in 2.14.0 ([discussion #6535](https://github.com/google/adk-python/discussions/6535)). |
 
-`run_python` can upload a script and execute it with Python through the same SDK
-command API. Do not introduce another Python server or promise a persistent
-notebook kernel: workspace files persist, but each execution starts a process.
+The environment interface is the preferred foundation for future multi-step
+file processing, editing, tests and skill execution. Stable promotion and
+multiple upstream providers are evidence of continued ADK investment, rather
+than a guarantee of future compatibility. Keep the provider adapter small,
+reuse the standard tools and verify behaviour when upgrading ADK. Streaming
+commands, interactive terminals, cancellation and background-job management
+remain outside this phase.
 
-### Conversation lifecycle and ownership
+Sources: [ADK 2.14.0 release](https://github.com/google/adk-python/releases/tag/v2.14.0),
+[pinned EnvironmentToolset](https://github.com/google/adk-python/blob/v2.14.0/src/google/adk/tools/environment/_environment_toolset.py),
+[pinned BaseEnvironment](https://github.com/google/adk-python/blob/v2.14.0/src/google/adk/environment/_base_environment.py),
+[pinned SkillToolset](https://github.com/google/adk-python/blob/v2.14.0/src/google/adk/tools/skill_toolset.py),
+and [Agent Sandbox Python client](https://agent-sandbox.sigs.k8s.io/docs/python-client/).
 
-- Derive the internal conversation key from the authenticated user, app, and
-  session. These values come from trusted ADK context, never model arguments.
-- Acquire lazily on the first sandbox tool call through the service's
-  acquire-or-reconnect call. The claim name comes from the conversation key, so
-  later calls and app restarts reach the same claim; keep only the claim UID in
-  ADK session state.
-- If the UID changed (the claim expired or was deleted), tell the model the
-  workspace was reset. Restore attachments/artifacts on demand; do not claim
-  unsaved workspace files survived.
-- Serialize workspace-changing calls per conversation while allowing different
-  conversations to run independently. Do not replay a command automatically
-  after an execution request with an uncertain outcome.
-- Release a claim when its conversation is deleted. Idle expiry belongs to the
-  controller (phase two); app shutdown only closes the client.
+### Environment adapter (`src/argo/tools/sandbox.py`)
+
+Implement an Argo subclass of `google.adk.environment.BaseEnvironment` using
+the shared sandbox service. Keep ADK/session/artifact code out of the phase-two
+package. Its methods are async and await the service directly.
+
+| Member | Implementation |
+| --- | --- |
+| `working_dir` | Return `Path("/workspace")`, identifying the remote workspace without accessing the host filesystem. |
+| `execute(command, timeout=...)` | Call the service's bounded-command wrapper through `await sandbox.commands.run(..., command_timeout=min(timeout, cap))`, so the runtime enforces the timeout ADK reports. Map the SDK's `timed_out` onto ADK's `ExecutionResult`. |
+| `read_file(path)` | Use SDK file reads via the service; return bytes, enforce a download limit and map missing files to `FileNotFoundError`. |
+| `write_file(path, content)` | Use SDK file writes via the service; accept text or bytes and create parent directories within the workspace. |
+| `read_file_stream(path)` | Initially use ADK's default implementation over the bounded `read_file`. This buffers the whole allowed file; genuine streaming can be added later. |
+| `initialize()` / `close()` | Idempotent setup/release of adapter resources. `initialize()` acquires nothing but sets `is_initialized = True`; `SkillToolset` calls it on every model request while that flag is false. Claim acquisition remains lazy; closing an adapter does not delete the conversation's claim or close the shared client. |
+
+- Invoke `/bin/bash --noprofile --norc -c` explicitly inside the sandbox, and
+  verify `/bin/bash` exists in the built image. Quote the complete command as
+  one argument when constructing the SDK command, so a skill script's own
+  `cd <skill dir> && ...` prefix stays intact. Commands already start in
+  `/workspace`: the image sets `SANDBOX_BASE_DIR=/workspace`, which the runtime
+  uses as every command's working directory. (The current Python runtime does
+  not support SDK per-command `cwd` or `env`.)
+- Map file paths explicitly. The SDK and the runtime strip a leading `/` and
+  resolve the rest under `/workspace`, so an unmapped `/workspace/a.py` is
+  silently written to `/workspace/workspace/a.py`, and `/tmp/x` to
+  `/workspace/tmp/x`. ADK's environment instruction and `SkillToolset` both use
+  absolute `/workspace/...` paths, so this is the normal case, not an edge case:
+  - strip the `/workspace/` prefix from absolute paths under it;
+  - pass relative paths unchanged;
+  - reject any other absolute path with a clear error.
+
+  The runtime already rejects paths whose real path leaves `/workspace`. Never
+  use host `Path.resolve` or host file I/O for remote files. Enforce byte limits
+  on reads and writes.
+- Keep the standard four tools and their usage instructions. Do not add separate
+  `bash`, `run_python`, `run_shell` or custom text-file tool schemas. Python can
+  run through `Execute`; ordinary text edits use the standard file tools. The
+  only Argo-defined sandbox tool is `stage_artifact` (see below), because no
+  stock tool moves an artifact into the workspace.
+- Each execution starts a fresh process. Workspace files persist; shell variables,
+  `cd` and Python variables do not persist between calls.
+
+### Conversation binding and lifecycle
+
+`BaseEnvironment` methods receive no `ToolContext`, and stock
+`EnvironmentToolset` holds one environment object. Argo's module-level agent
+must not hold a single sandbox environment shared across conversations.
+
+- Add a small Argo toolset/context wrapper that selects a conversation-bound
+  environment and delegates to the standard ADK toolsets. Bind from trusted
+  app, authenticated user and session context; never accept these identifiers
+  from model arguments or switch a global environment's active conversation.
+- Give the environment and skill toolsets the same bound environment for the
+  conversation. Handle both toolset initialization and close idempotently;
+  neither toolset's close may invalidate the other's active operations.
+- Keep `initialize()` lightweight: stock toolsets can call it during tool
+  discovery or request preparation. Acquire/reconnect on the first actual
+  environment operation, including skill materialization, through the phase-two
+  service. Only that service handles Kubernetes objects and connection modes.
+- Derive the claim name from the trusted conversation key through the service.
+  Later calls and app restarts reach the same claim; keep the claim UID in ADK
+  session state. Do not put live environment/client objects in session state.
+- Report a changed UID as a workspace reset; the model can stage attachments
+  again with `stage_artifact`. Do not claim unsaved files survived. Skill files
+  need no handling: before every script run, `SkillToolset` checks that the
+  script exists in the environment and copies the skill's files in again if it
+  doesn't. That check relies on the adapter's `read_file` raising
+  `FileNotFoundError` for a missing file.
+- Serialize tool calls per conversation with one lock, held by the tool-call
+  wrapper (see below) around the whole call and its output collection.
+  `EditFile` reads and writes through two separate adapter calls, so a lock in
+  the adapter could not make an edit atomic. Wrap `run_skill_script` and
+  `stage_artifact` too. Never also lock in the adapter: `asyncio.Lock` is not
+  re-entrant. Different conversations remain independent. Never automatically
+  replay an execution whose outcome is unknown.
+- Release the matching claim when its conversation is deleted and drop its bound
+  adapter resources. Idle expiry remains controller-owned. App shutdown closes
+  adapters and the shared client without deleting conversation claims.
+- Bound the per-conversation cache of toolsets and adapters (LRU or idle
+  eviction). Eviction drops only local objects: it never releases the claim or
+  closes the shared client, and the next call re-adopts the claim by name. Do
+  not evict an entry while a call holds its lock, or a new entry could run a
+  second call alongside it.
 
 ### Attachments, output, and limits
 
-- Copy requested attachments from the current user's artifact service into the
-  workspace through the SDK, preserving binary data and safe relative paths.
-  Uploaded sandbox files receive no GCS credentials or app environment values.
-- After Python and shell calls, collect new/changed regular files under
-  `/workspace/output/`, download through the SDK, and save through the existing
-  ADK artifact service. The current artifact UI should display those files.
-  Enforce path/symlink and byte/count limits; avoid republishing unchanged files.
-- Keep workspace persistence and artifact persistence distinct: deleting a claim
-  deletes workspace files, while saved GCS artifacts retain existing versioning.
-  Report artifact-copy failures without automatically rerunning executed code.
-- Use the phase-two command timeout (initially 60 seconds) and output cap; the
-  local router's 180-second proxy timeout leaves room for the timeout result.
-  Bound file transfers, and shorten output further for the model if needed.
-- Give distinct, actionable results for a command exiting nonzero, a command
-  timing out, provisioning/auth/connectivity failure, and artifact-transfer
-  failure. Never execute elsewhere when the sandbox is unavailable.
+- Add one small Argo function tool, `stage_artifact(filename)`, that copies an
+  artifact from the current user's artifact service into `/workspace/inputs/`
+  through SDK file APIs, preserving binary data, and returns its workspace path.
+  Scope lookups to the trusted user and session, as the existing artifact tools
+  do. Pass no GCS credentials or app environment values into the sandbox.
+  Standard text-file tools do not replace binary artifact transfers.
+- Wrap each stock tool in a small delegating tool that keeps ADK's declaration
+  unchanged and holds the conversation lock. After calls that can change files
+  (everything except `ReadFile`), it publishes new/changed regular files under
+  `/workspace/output/` through the existing ADK artifact service, including
+  files created by skill scripts. Enforce path/symlink, byte/count limits and
+  avoid republishing unchanged files.
+- Enrich tool results with workspace-reset notices, published artifact references
+  and service truncation metadata. ADK's `ExecutionResult` contains only stdout,
+  stderr, exit code and timeout status; preserve metadata in call-local state
+  through the wrapper, without modifying ADK internals or a shared last-result
+  field. If that state is a `contextvar`, store one mutable object per call and
+  update it in place: `SkillToolset` writes skill files in concurrent tasks,
+  which copy the context, so values set inside them would be lost. Keep the
+  execution result when artifact publication fails.
+- ADK 2.14.0's standard `Execute` passes a fixed **30-second** timeout. Accept
+  that initially. Construct `SkillToolset` with `script_timeout` at or below the
+  phase-two command cap (initially 60 seconds; ADK's default is 300), so the
+  timeout ADK reports is the one the sandbox enforces. The service still clamps
+  any longer request to its cap as a backstop. A later configurable Execute
+  timeout needs a deliberate tool extension, not a private constant patch.
+- Set `max_output_chars` on the toolset for model-visible truncation. This is
+  additional to phase-two stream byte caps inside the sandbox; trimming a tool
+  response does not bound runtime buffering. Keep all file transfers bounded.
+- `SkillToolset(save_output_artifacts=True)` is unsupported with `environment`
+  in ADK 2.14.0. Use Argo's publication wrapper for both toolsets.
+- Distinguish nonzero exit, timeout, provisioning/auth/connectivity failure and
+  artifact-transfer failure. Preserve saved artifact versions independently of
+  disposable workspace files. Never execute on the host when a sandbox fails.
 
 ### Wiring and acceptance criteria
 
-Register the tools in `agent.py` and explain their use in `instruction.md`.
-Create/close the shared service through the app lifecycle (FastAPI lifespan);
-keep ADK/session/artifact code out of the phase-two package. The service is
-async (`AsyncSandboxClient`), so tools await it directly on the event loop.
+Register the conversation-aware environment and skill toolsets and
+`stage_artifact` in `agent.py` alongside existing artifact tools. Update
+`instruction.md` for the standard tool names, workspace, fresh-process
+behaviour, `stage_artifact` and the output directory. Share one phase-two
+service through the FastAPI lifespan. On shutdown, close the `Runner` first,
+which closes the toolsets and their adapters, then the shared service. Make
+adapter cleanup compatible with both toolsets' close calls.
 
-Before phase three is complete, test tools through ADK with mocked infrastructure
-for schema/context isolation, reuse, deleted-claim recovery, timeout/output
-limits, binary attachments, artifact versions, and user/session isolation. Then
-run local chat end to end against the kind cluster, including Python and shell
-producing downloadable files. Verify reconnect after app restart and cleanup
-after conversation deletion. Record the equivalent GKE chat test separately when
-the production sandbox is ready.
+Before phase three is complete:
+
+- Test through ADK with mocked infrastructure: standard schemas, trusted context
+  binding, reuse, concurrent user/session isolation, claim-reset recovery,
+  idempotent initialization/close, atomic `EditFile` sequencing, path mapping
+  (`/workspace/a.py` maps to `a.py`; other absolute paths are rejected), byte
+  limits, nonzero exits, 30-second Execute timeout, service caps, truncation,
+  binary transfers, `stage_artifact` scoping, cache eviction without claim
+  release, artifact versions and publication failures.
+- Verify that listing tools does not provision a claim, every actual operation
+  uses the sandbox, and environment/skill toolsets share only the intended
+  conversation workspace. Verify a skill script runs again after a workspace
+  reset. Do not close a shared client from one adapter.
+- Run local chat against kind: Bash pipelines, redirection, a Python heredoc,
+  standard read/write/edit operations, a file written with `WriteFile` at
+  `/workspace/a.py` and then run with `Execute`, a staged attachment, and an ADK
+  skill script using the same workspace, including downloadable output files.
+  Verify file persistence, reconnect after app restart and cleanup after
+  conversation deletion.
+- Record the equivalent GKE chat test separately when the production sandbox is
+  ready. Local success does not establish gVisor or production connectivity.
 
 ---
 

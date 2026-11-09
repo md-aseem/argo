@@ -36,8 +36,9 @@ async def save_artifact(
     """Save a file, creating a new version if the filename already exists.
 
     Args:
-        filename: Filename including extension. Use user: only for files that
-            should be available across this user's conversations.
+        filename: Filename including extension. Files belong to this
+            conversation; add the user: prefix only when asked to make a file
+            available across conversations.
         content: The complete file contents, as text or base64-encoded bytes.
         mime_type: The file's MIME type, such as text/plain or application/pdf.
         base64_encoded: Set true only when content contains base64-encoded bytes.

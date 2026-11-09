@@ -8,19 +8,31 @@ Run from the repo root:
     .venv/bin/uvicorn argo.main:app --app-dir src --reload --reload-dir src --port 8000
 """
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from .routes import router
+from .tools.sandbox import sandboxes
 
 BASE_PATH = "/argo"
 
 # Same layout locally (<repo>/frontend/dist) and in the Docker image (/app/frontend/dist).
 DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
-app = FastAPI(title="Argo")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await sandboxes.initialize()  # Fails fast without sandbox cluster credentials.
+    try:
+        yield
+    finally:
+        await sandboxes.close()
+
+
+app = FastAPI(title="Argo", lifespan=lifespan)
 app.include_router(router, prefix=BASE_PATH)
 
 

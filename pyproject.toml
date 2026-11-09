@@ -6,8 +6,9 @@ readme = "README.md"
 requires-python = ">=3.15"
 dependencies = [
     "asyncpg>=0.32.0",
-    "google-adk>=2.13.0",
+    "google-adk>=2.14.0",
     "google-cloud-storage>=3.17.1",
+    "k8s-agent-sandbox[async]==1.0.10",
     "sqlalchemy[asyncio]>=2,<3",
 ]
 

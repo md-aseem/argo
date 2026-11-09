@@ -85,7 +85,15 @@ To let someone else sign in, add them to `IAP_MEMBERS` in `.env` and run `script
 
 The sandbox infrastructure lives separately in [k8s/sandbox/](../k8s/sandbox/).
 It is not included in `scripts/deploy.sh`. The app's code execution tools are
-phase three and are not wired up yet; phase two covers sandbox backends and local testing.
+phase three and are not wired up yet; phase two covers the sandbox service and
+a local kind cluster for developing it.
+
+The [phase-two plan](planning/agent-sandbox.md#phase-2-sandbox-service-and-local-kubernetes)
+keeps this deployment's direct in-cluster connection: on GKE the app connects to
+sandbox pods on port 8888, so no Sandbox Router or Gateway is deployed. Locally,
+a router reached through one port-forward stands in for the cluster network.
+Phase two also splits these manifests into a shared base with local and GKE
+overlays; the configuration below describes the existing phase-one deployment.
 
 The existing `agent-sandbox-controller` in `agent-sandbox-system` was verified
 healthy on November 8, 2026, running **v1.0.10**, with all four CRDs installed.
@@ -174,6 +182,20 @@ kubectl scale sandboxwarmpool/argo-python -n argo-sandbox --replicas=0
 
 Reapplying the manifests restores one warm sandbox. Each active claim adds its
 own sandbox beyond the pool's ready capacity.
+
+To check the sandbox's pod, node readiness, and runtime HTTP health, or open a
+shell inside its runtime container using your existing `kubectl` credentials:
+
+```sh
+scripts/sandbox.sh --check       # health check only; exits nonzero on failure
+scripts/sandbox.sh               # check health, then open /bin/sh
+scripts/sandbox.sh -- python --version
+```
+
+The script prints and pins the current Kubernetes context. Use `--context NAME`
+to select another context without changing your kubeconfig. If several sandbox
+pods exist, choose one with `--pod NAME`; `--namespace NAME` defaults to
+`argo-sandbox`. Files you change in the shell affect that sandbox's workspace.
 
 ## When something is wrong
 

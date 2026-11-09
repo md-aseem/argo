@@ -13,7 +13,7 @@ frontend/   the chat UI: Vite + React + TypeScript
 - Node.js 20.19+ or 22.12+, and npm
 - Docker Desktop, kind (0.31.0+) and kubectl for the local sandbox cluster.
 - Google Cloud access for Vertex AI. Sign in once with `gcloud auth application-default login`.
-- `.env` at the repo root (git-ignored): `cp .env.example .env` and fill in `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_BUCKET`. That's all a local run needs; the rest of the file is used by the production scripts. Conversations go to a local SQLite file unless you set `DATABASE_URL`.
+- `.env` at the repo root (git-ignored): `cp .env.example .env` and fill in `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_BUCKET`. That, plus the local sandbox cluster below, is all a local run needs; the rest of the file is used by the production scripts. Conversations go to a local SQLite file unless you set `DATABASE_URL`.
 
 ## Set up (first time)
 
@@ -32,6 +32,9 @@ Keep the sandbox router tunnel running in its own terminal:
 ```sh
 scripts/local-sandbox.sh tunnel
 ```
+
+The API won't start without the `kind-argo-dev` cluster from `up`, and without
+the tunnel the sandbox tools return errors.
 
 Then start the API and UI in two more terminals, both from the repo root.
 
@@ -84,9 +87,10 @@ Build from the repo root:
 docker build -t argo .
 ```
 
-For local development, run the API on the Mac as above: its named kind context
-and loopback router URL are checked at startup. A separate Docker container has
-its own loopback interface and cannot use that setup with only `--env-file`.
+For local development, run the API on the Mac as above. It uses only the
+`kind-argo-dev` kubectl context, never your current one, and refuses to start if
+that context's API server isn't local. A separate Docker container has its own
+loopback interface, so it can't reach the cluster or the tunnel.
 The sandbox image itself is built and loaded into kind by `local-sandbox.sh up`.
 
 ## Production

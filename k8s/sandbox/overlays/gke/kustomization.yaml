@@ -5,6 +5,6 @@ resources:
 images:
   - name: argo-sandbox
     newName: ${REGION}-docker.pkg.dev/${PROJECT_ID}/argo/sandbox
-    newTag: "0.1.1"
+    newTag: "0.1.2"
 patches:
   - path: template.yaml
